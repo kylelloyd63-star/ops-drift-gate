@@ -1,0 +1,11 @@
+version: 1
+services:
+  stripe-production:
+    provider: stripe
+    purpose: payments
+    required_for_production: true
+    custody:
+      owner: Test Owner
+      billing_owner: Test Owner
+      transferable: true
+      recovery_procedure: Test runbook

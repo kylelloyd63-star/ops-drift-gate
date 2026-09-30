@@ -1,0 +1,34 @@
+version: 1
+services:
+  stripe-production:
+    provider: stripe
+    purpose: production payments
+    required_for_production: true
+    custody:
+      owner: null
+      billing_owner: null
+      transferable: unknown
+      recovery_procedure: null
+  stripe-test:
+    provider: stripe
+    purpose: payment testing
+    required_for_production: false
+    custody:
+      owner: null
+      billing_owner: null
+      transferable: unknown
+      recovery_procedure: null
+  vercel-production:
+    provider: vercel
+    purpose: production hosting
+    required_for_production: true
+    custody:
+      owner: null
+      billing_owner: null
+      transferable: unknown
+      recovery_procedure: null
+ignores:
+  sentry:
+    provider: sentry
+    scope: all
+    reason: Example only - remove this ignore in a real manifest

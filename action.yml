@@ -1,0 +1,35 @@
+name: Ops Drift Gate
+description: Detect external operational dependencies missing from the repository custody manifest.
+author: Kyle Lloyd
+inputs:
+  path:
+    description: Repository path within GITHUB_WORKSPACE to scan
+    required: false
+    default: .
+  manifest:
+    description: Optional manifest path confined to scan root; blank discovers ops.yaml, ops.yml, or ops.json
+    required: false
+    default: ""
+  fail_on_undocumented:
+    description: Fail the action when strong/corroborated detected services are missing from the manifest
+    required: false
+    default: "true"
+  require_custody:
+    description: Also fail when production-required instances have incomplete custody fields
+    required: false
+    default: "false"
+outputs:
+  undocumented_count:
+    description: Number of detected providers missing from the manifest, regardless of gate policy
+  unknown_custody_count:
+    description: Number of production-required service instances with incomplete custody
+  status:
+    description: pass, fail, or error
+  complete:
+    description: Whether all relevant inputs were scanned within the documented scope and resource limits
+runs:
+  using: node24
+  main: src/action.js
+branding:
+  icon: shield
+  color: green
