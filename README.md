@@ -14,7 +14,7 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**v0.1 release candidate.** Keep interfaces provisional until the first tagged release.
+**v0.1.0.** Deterministic dependency detection and optional custody checks for stable repository checkouts.
 
 The core has zero runtime dependencies and requires Node 24+.
 
@@ -30,7 +30,11 @@ From a source checkout:
 node src/cli.js .
 ```
 
-After the package is available on npm, you can also run it with `npx ops-drift-gate`.
+Run the npm package with Node 24+:
+
+```bash
+npx --yes ops-drift-gate@0.1.0 .
+```
 
 Gate undocumented providers in CI:
 
@@ -102,7 +106,7 @@ Weak findings are reported but do **not** fail the undocumented-provider gate un
 
 ## GitHub Action
 
-After `v0.1.0` is tagged, use:
+Use the v0.1.0 GitHub Action:
 
 ```yaml
 name: Operational custody check
