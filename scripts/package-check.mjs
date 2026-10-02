@@ -33,7 +33,7 @@ try {
   fs.writeFileSync(path.join(project, "package.json"), '{"name":"ops-pack-smoke","private":true}');
   run(process.execPath, [runtime, pnpm ? "add" : "install", "--offline", "--ignore-scripts", ...(pnpm ? [] : ["--no-audit", "--no-fund"]), archive], { cwd: project });
   const installed = path.join(project, "node_modules/ops-drift-gate/src");
-  assert.equal(run(process.execPath, [path.join(installed, "cli.js"), "--version"]).trim(), "0.1.0");
+  assert.equal(run(process.execPath, [path.join(installed, "cli.js"), "--version"]).trim(), "0.1.1");
   const target = path.join(scratch, "hostile-target"); fs.mkdirSync(target);
   fs.writeFileSync(path.join(target, "package.json"), '{"dependencies":{"resend":"*"},"scripts":{"install":"exit 99"}}');
   const cli = spawnSync(process.execPath, [path.join(installed, "cli.js"), target, "--ci", "--json"], { encoding: "utf8" });
