@@ -24,5 +24,9 @@ jobs:
         run: |
           npm run check
           npm run package-check
-      - name: Publish with npm provenance
-        run: npm publish --provenance --access public
+      - name: Check npm supports staged publishing
+        run: |
+          npm --version
+          node -e "const v=require('child_process').execFileSync('npm',['--version'],{encoding:'utf8'}).trim().split('.').map(Number); if(v[0] < 11 || (v[0] === 11 && v[1] < 15)) { console.error('npm 11.15.0+ required for staged publishing'); process.exit(1) }"
+      - name: Stage package for 2FA approval
+        run: npm stage publish --access public

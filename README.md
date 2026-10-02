@@ -30,7 +30,7 @@ From a source checkout:
 node src/cli.js .
 ```
 
-The npm package is not considered available until a trusted-publishing workflow succeeds on npm. Until then, use a source checkout or the tagged GitHub Action below. The intended v0.1.1 command after publication is `npx --yes ops-drift-gate@0.1.1 .`.
+The npm package is not considered available until it is staged and explicitly approved on npm. Until then, use a source checkout or the tagged GitHub Action below. The intended v0.1.1 command after publication is `npx --yes ops-drift-gate@0.1.1 .`. Future automated publishes use OIDC trusted publishing plus npm staged publishing so a maintainer still approves each release with 2FA.
 
 Gate undocumented providers in CI:
 
