@@ -4,7 +4,7 @@ Ops Drift Gate is designed to inspect repositories while minimizing exposure to 
 
 ## Secret-handling contract
 
-- Known secret-bearing files such as real `.env` files, common credential files, and private-key formats are skipped without reading their contents.
+- Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, `secret*` / `credential*` paths, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames.
 - Example/template env files may be scanned for variable **names**.
 - The scanner does not intentionally extract or report secret values.
 - Source and configuration files that are not classified as sensitive are read for signatures. If a secret is hardcoded in ordinary source code, Ops Drift Gate may read that file; this tool is not a secrets scanner and should not be treated as one.
