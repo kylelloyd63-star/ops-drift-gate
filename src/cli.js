@@ -27,7 +27,7 @@ function parseArgs(argv) {
 try {
   const args = parseArgs(process.argv.slice(2));
   if (args === "help") console.log(usage());
-  else if (args === "version") console.log("0.1.0");
+  else if (args === "version") console.log("0.1.1");
   else {
     const result = auditRepository(args.root, args.manifest, { requireCustody: args.requireCustody });
     console.log(args.json ? JSON.stringify(machineReport(result), null, 2) : formatReport(result));
@@ -35,7 +35,7 @@ try {
     else if (args.ci && result.blocking.length) process.exitCode = 2;
   }
 } catch (error) {
-  if (process.argv.includes("--json")) console.log(JSON.stringify({ schema_version: 1, tool: { name: "ops-drift-gate", version: "0.1.0" }, execution_model: "stable-working-tree", status: "error", complete: false, manifest: { path: null, version: null, require_custody: process.argv.includes("--require-custody") }, summary: {}, findings: [], manifest_only: [], blocking: [], warnings: [{ code: safeError(error) }] }));
+  if (process.argv.includes("--json")) console.log(JSON.stringify({ schema_version: 1, tool: { name: "ops-drift-gate", version: "0.1.1" }, execution_model: "stable-working-tree", status: "error", complete: false, manifest: { path: null, version: null, require_custody: process.argv.includes("--require-custody") }, summary: {}, findings: [], manifest_only: [], blocking: [], warnings: [{ code: safeError(error) }] }));
   else console.error(`ops-drift: ${safeError(error)}`);
   process.exitCode = 1;
 }
