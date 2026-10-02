@@ -30,11 +30,7 @@ From a source checkout:
 node src/cli.js .
 ```
 
-Run the npm package with Node 24+:
-
-```bash
-npx --yes ops-drift-gate@0.1.0 .
-```
+npm publication is still pending. Until the package is published on npm, use a source checkout or the GitHub Action below. Do not rely on an `npx ops-drift-gate` install yet.
 
 Gate undocumented providers in CI:
 
@@ -176,7 +172,7 @@ Git index metadata is checked before source reads. Tracked symlinks are rejected
 
 Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner**.
 
-- Known secret-bearing files such as real `.env` files, common credential files, and private-key formats are skipped without reading their contents.
+- Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, `secret*` / `credential*` paths, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames.
 - `.env.example`, `.env.sample`, and `.env.template` may be scanned for variable names.
 - The scanner does not intentionally extract or report secret values.
 - Ordinary source/config files are read for signatures. A secret hardcoded in ordinary source is therefore still in a file the scanner reads.
