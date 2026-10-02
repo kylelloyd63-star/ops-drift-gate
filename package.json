@@ -1,6 +1,6 @@
 {
   "name": "ops-drift-gate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic operational dependency and custody drift detection for Git repositories.",
   "type": "module",
   "bin": {"ops-drift": "src/cli.js"},
