@@ -14,7 +14,7 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**v0.1.0.** Deterministic dependency detection and optional custody checks for stable repository checkouts.
+**v0.1.1 source line.** This hardening release keeps the v0.1 detection/custody model and adds broader credential-file exclusions plus reproducible cross-platform packaging. The existing tagged GitHub Action example below remains on v0.1.0 until v0.1.1 is intentionally released.
 
 The core has zero runtime dependencies and requires Node 24+.
 
@@ -30,7 +30,7 @@ From a source checkout:
 node src/cli.js .
 ```
 
-npm publication is still pending. Until the package is published on npm, use a source checkout or the GitHub Action below. Do not rely on an `npx ops-drift-gate` install yet.
+The npm package is not considered available until a trusted-publishing workflow succeeds on npm. Until then, use a source checkout or the tagged GitHub Action below. The intended v0.1.1 command after publication is `npx --yes ops-drift-gate@0.1.1 .`.
 
 Gate undocumented providers in CI:
 
