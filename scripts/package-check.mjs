@@ -15,6 +15,10 @@ function run(command, args, options = {}) {
 }
 try {
   const expected = ["LICENSE", "README.md", "action.yml", "package.json", "docs/execution-model.md", ...fs.readdirSync("src").map(name => "src/" + name)].sort();
+  for (const name of expected) {
+    const data = fs.readFileSync(name);
+    assert.equal(data.includes(Buffer.from("\r\n")), false, name + " must use canonical LF line endings");
+  }
   if (!pnpm) {
     const dry = JSON.parse(run(process.execPath, [runtime, "pack", "--dry-run", "--json"]));
     assert.deepEqual(dry[0].files.map(x => x.path).sort(), expected);
@@ -36,5 +40,5 @@ try {
   assert.equal(cli.status, 2); assert.equal(JSON.parse(cli.stdout).status, "fail");
   const action = run(process.execPath, [path.join(installed, "action.js")], { env: { ...process.env, GITHUB_WORKSPACE: target, INPUT_PATH: ".", INPUT_MANIFEST: "", INPUT_FAIL_ON_UNDOCUMENTED: "false", INPUT_REQUIRE_CUSTODY: "false", GITHUB_OUTPUT: path.join(scratch, "output"), GITHUB_STEP_SUMMARY: path.join(scratch, "summary") } });
   assert.match(action, /Gate status: PASS/);
-  console.log(JSON.stringify({ sha256, files, packed_cli: "pass", packed_action: "pass", offline_install: "pass", runtime: process.version }));
+  console.log(JSON.stringify({ sha256, files, packed_cli: "pass", packed_action: "pass", offline_install: "pass", line_endings: "lf", runtime: process.version }));
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
