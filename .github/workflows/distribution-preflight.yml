@@ -1,0 +1,77 @@
+name: v0.1.1 distribution preflight
+on:
+  push:
+    branches: [release/v0.1.1-distribution-preflight]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Inspect live public distribution state without publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const repo = 'kylelloyd63-star/ops-drift-gate';
+          const expected = '2bef6898682cf53a8d716dd982114393ed346922';
+          const expectedHash = '1dcc0559a76d8e545c213fea6e8a8ab698d03beb2ba316f8d9ac37a0ecd4648b';
+          async function get(url, github = false) {
+            const response = await fetch(url, {
+              signal: AbortSignal.timeout(30000),
+              headers: github ? { Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + process.env.GH_TOKEN } : {}
+            });
+            const text = await response.text();
+            let data; try { data = JSON.parse(text); } catch { data = { text: text.slice(0,250) }; }
+            return { http_status: response.status, data };
+          }
+          const gh = suffix => get('https://api.github.com/repos/' + repo + suffix, true);
+          const [main, tags, releases, immutable, vulnerability, registry, version] = await Promise.all([
+            gh('/commits/main'), gh('/git/matching-refs/tags/'), gh('/releases'),
+            gh('/immutable-releases'), gh('/private-vulnerability-reporting'),
+            get('https://registry.npmjs.org/ops-drift-gate'),
+            get('https://registry.npmjs.org/ops-drift-gate/0.1.1')
+          ]);
+          const report = {
+            observed_at: new Date().toISOString(), runtime: process.version,
+            npm_version: execFileSync('npm',['--version'],{encoding:'utf8'}).trim(),
+            main: { http_status: main.http_status, sha: main.data.sha },
+            tags: { http_status: tags.http_status, refs: Array.isArray(tags.data) ? tags.data.map(x => ({ref:x.ref,sha:x.object.sha,type:x.object.type})) : tags.data },
+            releases: { http_status: releases.http_status, releases: Array.isArray(releases.data) ? releases.data.map(x => ({id:x.id,tag:x.tag_name,draft:x.draft,prerelease:x.prerelease,immutable:x.immutable,url:x.html_url,updated_at:x.updated_at})) : releases.data },
+            immutable_releases: immutable,
+            private_vulnerability_reporting: vulnerability,
+            npm_package: { http_status: registry.http_status, name:registry.data.name, versions:Object.keys(registry.data.versions || {}), dist_tags:registry.data['dist-tags'], error:registry.data.error },
+            npm_0_1_1: { http_status:version.http_status, name:version.data.name, version:version.data.version, repository:version.data.repository, license:version.data.license, engines:version.data.engines, dist:version.data.dist, error:version.data.error }
+          };
+          if (version.http_status === 200) {
+            const tarball = version.data.dist?.tarball;
+            assert.equal(new URL(tarball).origin, 'https://registry.npmjs.org');
+            const response = await fetch(tarball, {signal:AbortSignal.timeout(30000)});
+            assert.equal(response.status,200);
+            report.npm_0_1_1.sha256 = createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');
+            report.npm_0_1_1.matches_expected_sha256 = report.npm_0_1_1.sha256 === expectedHash;
+          }
+          const json = JSON.stringify(report,null,2);
+          console.log(json);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '# Public distribution preflight\n\n```json\n' + json + '\n```\n');
+          assert.equal(main.http_status,200);
+          assert.equal(main.data.sha,expected,'Main changed; do not release this candidate');
+          assert.equal(tags.http_status,200);
+          assert.equal(releases.http_status,200);
+          assert.ok([200,404].includes(registry.http_status),'Registry state unavailable');
+          assert.ok([200,404].includes(version.http_status),'Version state unavailable');
+          if (version.http_status === 200) assert.equal(report.npm_0_1_1.matches_expected_sha256,true,'Conflicting npm 0.1.1 bytes');
+          NODE
