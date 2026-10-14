@@ -14,7 +14,7 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**v0.1.1 source line.** This hardening release keeps the v0.1 detection/custody model and adds broader credential-file exclusions plus reproducible cross-platform packaging. The existing tagged GitHub Action example below remains on v0.1.0 until v0.1.1 is intentionally released.
+**v0.1.1 is published.** This hardening release keeps the v0.1 detection/custody model and adds broader credential-file exclusions plus reproducible cross-platform packaging. The npm package `ops-drift-gate@0.1.1` is published, and the tagged GitHub Action example below uses `v0.1.1`.
 
 The core has zero runtime dependencies and requires Node 24+.
 
@@ -30,7 +30,13 @@ From a source checkout:
 node src/cli.js .
 ```
 
-The npm package is not considered available until it is staged and explicitly approved on npm. Until then, use a source checkout or the tagged GitHub Action below. The intended v0.1.1 command after publication is `npx --yes ops-drift-gate@0.1.1 .`. Future automated publishes use OIDC trusted publishing plus npm staged publishing so a maintainer still approves each release with 2FA.
+The npm package `ops-drift-gate@0.1.1` is published. From any machine with Node 24+:
+
+```bash
+npx --yes ops-drift-gate@0.1.1 .
+```
+
+Future automated publishes use OIDC trusted publishing plus npm staged publishing so a maintainer still approves each release with 2FA.
 
 Gate undocumented providers in CI:
 
@@ -102,7 +108,7 @@ Weak findings are reported but do **not** fail the undocumented-provider gate un
 
 ## GitHub Action
 
-Use the v0.1.0 GitHub Action:
+Use the v0.1.1 GitHub Action:
 
 ```yaml
 name: Operational custody check
@@ -121,7 +127,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: kylelloyd63-star/ops-drift-gate@v0.1.0
+      - uses: kylelloyd63-star/ops-drift-gate@v0.1.1
         with:
           path: .
           manifest: ops.yaml
