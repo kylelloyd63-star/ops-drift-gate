@@ -49,7 +49,7 @@ export function auditRepository(root, manifestPath, options = {}) {
     const documented = instances.length > 0;
     const informationalOnly = confidence === "weak";
     return {
-      finding: { ...finding, evidence, activeConfidence: confidence },
+      finding: { ...finding, evidence, confidence },
       ignored,
       ignoreReason: ignored ? [...new Set(evidence.flatMap(e => e.ignores.map(rule => rule.reason)))].join("; ") : null,
       documented,

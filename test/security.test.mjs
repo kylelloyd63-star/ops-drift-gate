@@ -61,6 +61,12 @@ test("DET-12 scoped ignores retain evidence and cannot cover siblings",()=>fixtu
  write("test/fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("test/fixtures-sibling/package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  legacy:\n    provider: resend\n    path_prefix: test/fixtures/\n    reason: archived fixture\n");
  const r=auditRepository(root);assert.equal(r.status,"fail");assert.deepEqual(r.undocumented,["resend"]);assert.equal(r.items[0].finding.evidence.filter(x=>x.ignores.length).length,1);fs.unlinkSync(path.join(root,"test/fixtures-sibling/package.json"));const clean=auditRepository(root);assert.equal(clean.status,"pass");assert.equal(clean.items[0].ignored,true);assert.ok(machineReport(clean).findings[0].evidence[0].ignores[0].reason);
 }));
+test("DET-12 scoped ignores recalculate reported confidence",()=>fixture((root,write)=>{
+ write("fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("app.js",'fetch("https://api.resend.com")');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    path_prefix: fixtures/\n    reason: archived fixture\n");
+ const result=auditRepository(root),finding=result.items[0].finding;
+ assert.equal(finding.confidence,"weak");assert.equal(result.items[0].informationalOnly,true);
+ assert.match(formatReport(result),/\(weak\)/);assert.equal(machineReport(result).findings[0].confidence,"weak");
+}));
 test("ACTION-04 ACTION-05 fixed output grammar and escaped HTML summary",()=>fixture((root,write)=>{
  const ticks=String.fromCharCode(96).repeat(3);write("package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    scope: all\n    reason: '<script>"+ticks+" ::error:: %0A</script>'\n");
  const r=launch(root);assert.equal(r.status,0,r.stderr);assert.equal(r.summary.includes("<script>"),false);assert.equal(r.summary.includes(ticks),false);assert.equal(r.stdout.includes("::error::"),false);assert.match(r.summary,/&lt;script&gt;/);for(const line of r.output.trim().split("\n"))assert.match(line,/^(undocumented_count|unknown_custody_count)=\d+$|^status=(pass|fail|error)$|^complete=(true|false)$/);
