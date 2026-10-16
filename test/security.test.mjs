@@ -16,6 +16,17 @@ for(const[id,name]of[["SEC-01",".env"],["SEC-02","nested/.env"],["SEC-03",".env.
  write(name,fake);let reads=0;const original=fs.openSync;fs.openSync=function(file,...args){if(String(file)===path.join(root,name))reads++;return original.call(this,file,...args);};
  try{const r=scanRepository(root);assert.equal(r.complete,true);assert.equal(reads,0);assert.ok(r.skippedSensitiveFiles.includes(name));assert.equal(JSON.stringify(r).includes(fake),false);}finally{fs.openSync=original;}
 }));
+test("SEC secret-like source and documentation names remain ordinary files",()=>fixture((root,write)=>{
+ for(const name of["src/secretsManager.js","src/secretary.js","src/credentialProvider.ts","credentials-service/index.js"])write(name,"process.env.STRIPE_SECRET_KEY");
+ write("docs/secret-rotation.md","ordinary documentation");
+ const result=scanRepository(root);
+ assert.equal(result.complete,true);assert.deepEqual(result.skippedSensitiveFiles,[]);assert.equal(result.scannedFiles,4);
+ for(const name of["src/secretsManager.js","src/secretary.js","src/credentialProvider.ts","credentials-service/index.js"])assert.ok(result.envVars.some(item=>item.path===name));
+}));
+test("SEC scan roots beneath secret-like directories remain valid",()=>{
+ const parent=fs.mkdtempSync(path.join(os.tmpdir(),"secret-santa-")),root=path.join(parent,"credential-broker","repo");
+ try{fs.mkdirSync(root,{recursive:true});fs.writeFileSync(path.join(root,"app.js"),"process.env.STRIPE_SECRET_KEY");const result=scanRepository(root);assert.equal(result.complete,true);assert.ok(result.services.some(item=>item.id==="stripe"));}finally{fs.rmSync(parent,{recursive:true,force:true});}
+});
 for(const[id,name,text]of[["SEC-10",".env.example","OPENAI_API_KEY="+fake],["SEC-11","app.js",'const secret="'+fake+'"; process.env.OPENAI_API_KEY;'],["SEC-12","app.js",'fetch("https://api.openai.com/'+fake+'")'],["SEC-13","package.json",'{"secret":"'+fake],["SEC-14","ops.yaml",template+'  bad:\n    provider: "'+fake]])test(id+" SEC-15–20 synthetic values absent from every output",()=>fixture((root,write)=>{
  write(name,text);const r=launch(root),c=spawnSync(process.execPath,[cli,root,"--json","--ci"],{encoding:"utf8"});
  for(const surface of[r.stdout,r.stderr,r.summary,r.output,c.stdout,c.stderr]){assert.equal(surface.includes(fake),false);assert.equal(surface.includes(root),false);assert.equal(surface.includes(os.homedir()),false);assert.equal(/\bat .+:\d+:\d+/.test(surface),false);}

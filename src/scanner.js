@@ -138,7 +138,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
   for (const rel of walk(root, limits, checkTime, rel => { currentPath = normalize(rel) || "."; }, guard)) {
     const normalized = normalize(rel);
     const full = path.join(root, rel);
-    if (isSensitivePath(full)) { skippedSensitiveFiles.push(safeText(normalized)); continue; }
+    if (isSensitivePath(rel)) { skippedSensitiveFiles.push(safeText(normalized)); continue; }
     for (const rule of SERVICE_RULES) if (rule.filePatterns?.some(re => re.test(normalized))) addEvidence(services, rule, { path: normalized, kind: rule.id === "github-actions" ? "workflow" : "file", detail: "matching operational file" });
     const ext = path.extname(rel).toLowerCase();
     const base = path.basename(rel).toLowerCase();

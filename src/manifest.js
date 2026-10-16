@@ -148,7 +148,7 @@ export function loadManifest(rootInput, explicitPath, guard) {
   let loaded = null;
   for (const candidate of candidates) {
     const resolved = path.resolve(root, candidate); if (!within(root, resolved)) fail("PATH_OUTSIDE_ROOT");
-    if (isSensitivePath(resolved) || ![".yaml", ".yml", ".json"].includes(path.extname(resolved).toLowerCase())) fail("SENSITIVE_OR_UNSUPPORTED_MANIFEST_PATH");
+    if (isSensitivePath(path.relative(root, resolved)) || ![".yaml", ".yml", ".json"].includes(path.extname(resolved).toLowerCase())) fail("SENSITIVE_OR_UNSUPPORTED_MANIFEST_PATH");
     let exists;
     try { fs.lstatSync(resolved); exists = true; } catch (error) { if (error.code !== "ENOENT") throw error; exists = false; }
     if (!exists) { if (explicitPath !== undefined) fail("EXPLICIT_MANIFEST_MISSING"); continue; }

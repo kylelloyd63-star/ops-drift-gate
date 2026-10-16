@@ -14,10 +14,13 @@ export function within(root, target) {
   const relative = path.relative(root, target);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
-export function isSensitivePath(value) {
+export function isSensitivePath(value, includePrefixedFile = true) {
   const normalized = value.split(path.sep).join("/");
   const base = path.basename(value).toLowerCase();
-  if (/(^|\/)(?:secret|credential)[^/]*/i.test(normalized) || /\.(pem|p12|pfx|key|keystore)$/i.test(base)) return true;
+  const components = normalized.split("/").filter(Boolean);
+  if (components.some(component => /^(?:secrets?|credentials?)$/i.test(component))) return true;
+  if (includePrefixedFile && /^(?:secrets?|credentials?)[._-]/i.test(base) && (!path.extname(base) || [".json", ".yaml", ".yml", ".toml", ".ini", ".env", ".txt"].includes(path.extname(base)))) return true;
+  if (/\.(pem|p12|pfx|key|keystore)$/i.test(base)) return true;
   if (/(^|\/)\.docker\/config\.json$/i.test(normalized)) return true;
   if (/(^|\/)(?:auth\.json|application_default_credentials\.json|[^/]*service[-_]?account[^/]*\.json|\.npmrc|\.pypirc|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519))$/i.test(normalized)) return true;
   if (base.startsWith(".env")) return ![".env.example", ".env.sample", ".env.template"].includes(base);
@@ -58,7 +61,7 @@ export function repositoryRoot(value, workspace) {
   const root = fs.realpathSync.native(resolved);
   if (boundary) checkedPath(boundary, root);
   if (!fs.statSync(root).isDirectory()) fail("INVALID_SCAN_ROOT");
-  if (isSensitivePath(root)) fail("SENSITIVE_SCAN_ROOT");
+  if (isSensitivePath(path.basename(root), false)) fail("SENSITIVE_SCAN_ROOT");
   return root;
 }
 function sameFile(a, b) { return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs; }
