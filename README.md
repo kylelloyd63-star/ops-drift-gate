@@ -178,7 +178,7 @@ Git index metadata is checked before source reads. Tracked symlinks are rejected
 
 Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner**.
 
-- Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, exact `secret` / `secrets` / `credential` / `credentials` path components, prefixed secret/credential data files, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames. Secret-like source names such as `secretsManager.js` are scanned normally.
+- Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, exact or dot-suffixed `secret` / `secrets` / `credential` / `credentials` path components, hyphen/underscore-prefixed secret/credential data files, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames. Secret-like source names such as `secretsManager.js` are scanned normally.
 - `.env.example`, `.env.sample`, and `.env.template` may be scanned for variable names.
 - The scanner does not intentionally extract or report secret values.
 - Ordinary source/config files are read for signatures. A secret hardcoded in ordinary source is therefore still in a file the scanner reads.

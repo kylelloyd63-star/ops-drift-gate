@@ -114,7 +114,7 @@ function inspectPackages(rel, text, store) {
 }
 
 export function scanRepository(rootInput, options = {}, sharedGuard) {
-  const root = repositoryRoot(rootInput);
+  const root = repositoryRoot(rootInput, options.workspace);
   const guard = sharedGuard ?? snapshotGuard(root);
   const limits = { ...LIMITS };
   for (const [key, value] of Object.entries(options.limits ?? {})) {
