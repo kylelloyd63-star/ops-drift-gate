@@ -17,7 +17,7 @@ export function within(root, target) {
 export function isSensitivePath(value) {
   const normalized = value.split(path.sep).join("/");
   const base = path.basename(value).toLowerCase();
-  if (/(^|\/)(secrets?|credentials?)(\.|\/|$)/i.test(normalized) || /\.(pem|p12|pfx|key|keystore)$/i.test(base)) return true;
+  if (/(^|\/)(?:secret|credential)[^/]*/i.test(normalized) || /\.(pem|p12|pfx|key|keystore)$/i.test(base)) return true;
   if (/(^|\/)\.docker\/config\.json$/i.test(normalized)) return true;
   if (/(^|\/)(?:auth\.json|application_default_credentials\.json|[^/]*service[-_]?account[^/]*\.json|\.npmrc|\.pypirc|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519))$/i.test(normalized)) return true;
   if (base.startsWith(".env")) return ![".env.example", ".env.sample", ".env.template"].includes(base);
