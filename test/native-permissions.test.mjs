@@ -5,7 +5,8 @@ import path from "node:path";
 import {spawnSync} from "node:child_process";
 import test from "node:test";
 import {scanRepository} from "../src/index.js";
-test("FS-14 real native permission denial is incomplete and is restored",()=>{
+const rootUser = typeof process.geteuid === "function" && process.geteuid() === 0;
+test("FS-14 real native permission denial is incomplete and is restored", { skip: rootUser ? "permission denial cannot be enforced for the root user" : false }, () => {
   const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),"ops-native-acl-"))),file=path.join(root,"app.js");
   fs.writeFileSync(file,"SYNTHETIC_PERMISSION_VALUE");
   let user,denied=false;

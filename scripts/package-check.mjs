@@ -14,6 +14,7 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 try {
+  const version = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
   const expected = ["LICENSE", "README.md", "action.yml", "package.json", "docs/execution-model.md", ...fs.readdirSync("src").map(name => "src/" + name)].sort();
   for (const name of expected) {
     const data = fs.readFileSync(name);
@@ -33,11 +34,12 @@ try {
   fs.writeFileSync(path.join(project, "package.json"), '{"name":"ops-pack-smoke","private":true}');
   run(process.execPath, [runtime, pnpm ? "add" : "install", "--offline", "--ignore-scripts", ...(pnpm ? [] : ["--no-audit", "--no-fund"]), archive], { cwd: project });
   const installed = path.join(project, "node_modules/ops-drift-gate/src");
-  assert.equal(run(process.execPath, [path.join(installed, "cli.js"), "--version"]).trim(), "0.1.1");
+  assert.equal(run(process.execPath, [path.join(installed, "cli.js"), "--version"]).trim(), version);
   const target = path.join(scratch, "hostile-target"); fs.mkdirSync(target);
   fs.writeFileSync(path.join(target, "package.json"), '{"dependencies":{"resend":"*"},"scripts":{"install":"exit 99"}}');
   const cli = spawnSync(process.execPath, [path.join(installed, "cli.js"), target, "--ci", "--json"], { encoding: "utf8" });
-  assert.equal(cli.status, 2); assert.equal(JSON.parse(cli.stdout).status, "fail");
+  const report = JSON.parse(cli.stdout);
+  assert.equal(cli.status, 2); assert.equal(report.status, "fail"); assert.equal(report.tool.version, version);
   const action = run(process.execPath, [path.join(installed, "action.js")], { env: { ...process.env, GITHUB_WORKSPACE: target, INPUT_PATH: ".", INPUT_MANIFEST: "", INPUT_FAIL_ON_UNDOCUMENTED: "false", INPUT_REQUIRE_CUSTODY: "false", GITHUB_OUTPUT: path.join(scratch, "output"), GITHUB_STEP_SUMMARY: path.join(scratch, "summary") } });
   assert.match(action, /Gate status: PASS/);
   console.log(JSON.stringify({ sha256, files, packed_cli: "pass", packed_action: "pass", offline_install: "pass", line_endings: "lf", runtime: process.version }));
