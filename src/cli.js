@@ -2,6 +2,7 @@
 import { auditRepository } from "./audit.js";
 import { formatReport, machineReport } from "./report.js";
 import { safeError } from "./safety.js";
+import { TOOL_VERSION } from "./version.js";
 
 function usage() {
   return `ops-drift [path] [--ci] [--json] [--manifest ops.yaml] [--require-custody]\n\nScans a repository for external operational dependencies and checks them against a human-maintained custody manifest.\n\n  --ci                exit 2 when the gate has blocking findings\n  --json              emit machine-readable JSON\n  --manifest <path>   use a specific manifest path\n  --require-custody   also fail for incomplete custody on production-required instances\n  --help              show this help\n  --version           show version\n`;
@@ -27,7 +28,7 @@ function parseArgs(argv) {
 try {
   const args = parseArgs(process.argv.slice(2));
   if (args === "help") console.log(usage());
-  else if (args === "version") console.log("0.1.1");
+  else if (args === "version") console.log(TOOL_VERSION);
   else {
     const result = auditRepository(args.root, args.manifest, { requireCustody: args.requireCustody });
     console.log(args.json ? JSON.stringify(machineReport(result), null, 2) : formatReport(result));
@@ -35,7 +36,7 @@ try {
     else if (args.ci && result.blocking.length) process.exitCode = 2;
   }
 } catch (error) {
-  if (process.argv.includes("--json")) console.log(JSON.stringify({ schema_version: 1, tool: { name: "ops-drift-gate", version: "0.1.1" }, execution_model: "stable-working-tree", status: "error", complete: false, manifest: { path: null, version: null, require_custody: process.argv.includes("--require-custody") }, summary: {}, findings: [], manifest_only: [], blocking: [], warnings: [{ code: safeError(error) }] }));
+  if (process.argv.includes("--json")) console.log(JSON.stringify({ schema_version: 1, tool: { name: "ops-drift-gate", version: TOOL_VERSION }, execution_model: "stable-working-tree", status: "error", complete: false, manifest: { path: null, version: null, require_custody: process.argv.includes("--require-custody") }, summary: {}, findings: [], manifest_only: [], blocking: [], warnings: [{ code: safeError(error) }] }));
   else console.error(`ops-drift: ${safeError(error)}`);
   process.exitCode = 1;
 }

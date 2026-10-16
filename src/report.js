@@ -1,4 +1,5 @@
 import { safeText } from "./safety.js";
+import { TOOL_VERSION } from "./version.js";
 export function formatReport(result) {
   const failOnUndocumented = result.failOnUndocumented;
   const lines = [
@@ -37,7 +38,7 @@ export function formatReport(result) {
 
 export function machineReport(result) {
   return {
-    schema_version: 1, tool: { name: "ops-drift-gate", version: "0.1.0" }, execution_model: "stable-working-tree", status: result.status, complete: result.complete,
+    schema_version: 1, tool: { name: "ops-drift-gate", version: TOOL_VERSION }, execution_model: "stable-working-tree", status: result.status, complete: result.complete,
     manifest: { path: result.manifestPath, version: result.manifestVersion, require_custody: result.requireCustody },
     summary: { scanned_files: result.scan.scannedFiles, candidate_bytes: result.scan.candidateBytes, undocumented_count: result.undocumented.length, unknown_custody_count: result.unknownCustody.length, skipped_sensitive_files: result.scan.skippedSensitiveFiles.length },
     findings: result.items.map(item => ({ ...item.finding, documented: item.documented, ignored: item.ignored, informational_only: item.informationalOnly, instances: item.instances.map(x => ({ id: x.id, missing_custody: x.custodyUnknowns })) })),
