@@ -7,7 +7,7 @@
   "files": ["src", "action.yml", "README.md", "LICENSE", "docs/execution-model.md"],
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/cli.js && node --check src/scanner.js && node --check src/manifest.js && node --check src/audit.js && node --check src/report.js && node --check src/rules.js && node --check src/action.js && node --check src/index.js && node --check src/safety.js && node --check src/git-index.js && node --test test/*.test.mjs",
+    "check": "node --check src/cli.js && node --check src/scanner.js && node --check src/manifest.js && node --check src/audit.js && node --check src/report.js && node --check src/rules.js && node --check src/action.js && node --check src/index.js && node --check src/safety.js && node --check src/git-index.js && node --check src/version.js && node --test test/*.test.mjs",
     "package-check": "node scripts/package-check.mjs"
   },
   "engines": {"node": ">=24"},
