@@ -164,7 +164,7 @@ All four Node dependency groups (runtime, development, peer, optional) remain st
 
 ## Completion, limits, and machine output
 
-Exit codes: `0` for a complete scan with enabled policies passing; `1` for path, manifest, I/O, encoding, resource, or incomplete-scan errors; `2` for a complete scan with blocking policy findings under `--ci`. Without `--ci`, policy findings remain visible and do not change the CLI exit code. `--json` emits schema v1 with `status`, `complete`, relative paths, findings, manifest-only inventory, active blocking findings, and warning codes. Custody values and raw source lines are not echoed. Diagnostics do not include raw exceptions or stack traces.
+Exit codes: `0` for a complete scan with enabled policies passing; `1` for path, manifest, I/O, encoding, resource, or incomplete-scan errors; `2` for a complete scan with blocking policy findings under `--ci`. Without `--ci`, policy findings remain visible and do not change the CLI exit code. `--json` emits schema v1 with `status`, `complete`, relative paths, findings, manifest-only inventory, active blocking findings, and warning codes. A finding's `confidence` is recalculated after scoped ignores; `activeConfidence` remains as a deprecated compatibility alias with the same value. Custody values and raw source lines are not echoed. Diagnostics do not include raw exceptions or stack traces.
 
 Default limits: 100,000 visited entries; 10,000 candidate files; 1 MiB per candidate; 256 MiB total candidate bytes; 64 path components; 20,000 evidence/variable-name records; one million ignore comparisons and 20,000 matched-ignore annotations; 30 seconds of scan traversal; manifest 256 KiB, 10,000 keys, depth 16, text fields 2,048 characters; path input 4,096 characters. Limits cause an explicit incomplete error, never a pass. The scan-time budget is cooperative; it cannot preempt a blocking filesystem call. Node API callers may lower traversal limits but cannot raise them.
 
@@ -178,7 +178,7 @@ Git index metadata is checked before source reads. Tracked symlinks are rejected
 
 Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner**.
 
-- Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, `secret*` / `credential*` paths, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames.
+- Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, exact or dot-suffixed `secret` / `secrets` / `credential` / `credentials` path components, hyphen/underscore-prefixed secret/credential data files, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames. Secret-like source names such as `secretsManager.js` are scanned normally.
 - `.env.example`, `.env.sample`, and `.env.template` may be scanned for variable names.
 - The scanner does not intentionally extract or report secret values.
 - Ordinary source/config files are read for signatures. A secret hardcoded in ordinary source is therefore still in a file the scanner reads.

@@ -12,7 +12,7 @@ function custodyUnknowns(record) {
 }
 
 export function auditRepository(root, manifestPath, options = {}) {
-  const resolvedRoot = repositoryRoot(root);
+  const resolvedRoot = repositoryRoot(root, options.workspace);
   const guard = snapshotGuard(resolvedRoot);
   const loaded = loadManifest(resolvedRoot, manifestPath, guard);
   const scan = scanRepository(resolvedRoot, options, guard);
@@ -49,7 +49,7 @@ export function auditRepository(root, manifestPath, options = {}) {
     const documented = instances.length > 0;
     const informationalOnly = confidence === "weak";
     return {
-      finding: { ...finding, evidence, activeConfidence: confidence },
+      finding: { ...finding, evidence, confidence, activeConfidence: confidence },
       ignored,
       ignoreReason: ignored ? [...new Set(evidence.flatMap(e => e.ignores.map(rule => rule.reason)))].join("; ") : null,
       documented,

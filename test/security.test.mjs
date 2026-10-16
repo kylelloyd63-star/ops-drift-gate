@@ -12,9 +12,25 @@ const fake="RC2_SYNTHETIC_SECRET_MUST_NOT_APPEAR",template="version: 1\nservices
 function fixture(run){const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),"ops-rc2-")));const write=(name,data)=>{const file=path.join(root,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,data);return file;};try{return run(root,write);}finally{fs.rmSync(root,{recursive:true,force:true});}}
 function launch(root,extra={}){const summary=path.join(os.tmpdir(),"ops-summary-"+crypto.randomUUID()),output=summary+".output";try{const r=spawnSync(process.execPath,[action],{encoding:"utf8",timeout:10000,env:{...process.env,GITHUB_WORKSPACE:root,INPUT_PATH:".",INPUT_MANIFEST:"",INPUT_FAIL_ON_UNDOCUMENTED:"false",INPUT_REQUIRE_CUSTODY:"false",GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:summary,...extra}});return{...r,output:fs.existsSync(output)?fs.readFileSync(output,"utf8"):"",summary:fs.existsSync(summary)?fs.readFileSync(summary,"utf8"):""};}finally{for(const f of[summary,output])if(fs.existsSync(f))fs.unlinkSync(f);}}
 const manifest=raw=>validateManifest(parseSimpleYaml(raw));
-for(const[id,name]of[["SEC-01",".env"],["SEC-02","nested/.env"],["SEC-03",".env.local"],["SEC-04",".env.production"],["SEC-05",".env.development.local"],["SEC-06","tls.pem"],["SEC-07","tls.p12"],["SEC-07","tls.pfx"],["SEC-07","tls.key"],["SEC-07","tls.keystore"],["SEC-08","credentials.json"],["SEC-09","secrets/config.json"],["SEC-21",".docker/config.json"],["SEC-22","application_default_credentials.json"],["SEC-23","gcp-service-account-key.json"],["SEC-24","auth.json"],["SEC-25",".npmrc"],["SEC-26",".pypirc"],["SEC-27",".netrc"],["SEC-28","id_rsa"]])test(id+" no content read: "+name,()=>fixture((root,write)=>{
+for(const[id,name]of[["SEC-01",".env"],["SEC-02","nested/.env"],["SEC-03",".env.local"],["SEC-04",".env.production"],["SEC-05",".env.development.local"],["SEC-06","tls.pem"],["SEC-07","tls.p12"],["SEC-07","tls.pfx"],["SEC-07","tls.key"],["SEC-07","tls.keystore"],["SEC-08","credentials.json"],["SEC-09","secrets/config.json"],["SEC-09","secret-key.json"],["SEC-09","nested/credentials-prod.json"],["SEC-09","secrets.py"],["SEC-09","config/secrets.js"],["SEC-09","credentials.xml"],["SEC-09","credentials.csv"],["SEC-09","secrets.tfvars"],["SEC-09","secret.enc"],["SEC-09","secrets.d/db.conf"],["SEC-09","credentials.d/x.json"],["SEC-21",".docker/config.json"],["SEC-22","application_default_credentials.json"],["SEC-23","gcp-service-account-key.json"],["SEC-24","auth.json"],["SEC-25",".npmrc"],["SEC-26",".pypirc"],["SEC-27",".netrc"],["SEC-28","id_rsa"]])test(id+" no content read: "+name,()=>fixture((root,write)=>{
  write(name,fake);let reads=0;const original=fs.openSync;fs.openSync=function(file,...args){if(String(file)===path.join(root,name))reads++;return original.call(this,file,...args);};
  try{const r=scanRepository(root);assert.equal(r.complete,true);assert.equal(reads,0);assert.ok(r.skippedSensitiveFiles.includes(name));assert.equal(JSON.stringify(r).includes(fake),false);}finally{fs.openSync=original;}
+}));
+test("SEC secret-like source and documentation names remain ordinary files",()=>fixture((root,write)=>{
+ for(const name of["src/secretsManager.js","src/secretary.js","src/credentialProvider.ts","credentials-service/index.js"])write(name,"process.env.STRIPE_SECRET_KEY");
+ write("docs/secret-rotation.md","ordinary documentation");
+ const result=scanRepository(root);
+ assert.equal(result.complete,true);assert.deepEqual(result.skippedSensitiveFiles,[]);assert.equal(result.scannedFiles,4);
+ for(const name of["src/secretsManager.js","src/secretary.js","src/credentialProvider.ts","credentials-service/index.js"])assert.ok(result.envVars.some(item=>item.path===name));
+}));
+test("SEC scan roots beneath secret-like directories remain valid",()=>{
+ const parent=fs.mkdtempSync(path.join(os.tmpdir(),"secret-santa-")),root=path.join(parent,"credential-broker","repo");
+ try{fs.mkdirSync(root,{recursive:true});fs.writeFileSync(path.join(root,"app.js"),"process.env.STRIPE_SECRET_KEY");const result=scanRepository(root);assert.equal(result.complete,true);assert.ok(result.services.some(item=>item.id==="stripe"));}finally{fs.rmSync(parent,{recursive:true,force:true});}
+});
+test("SEC nested scan roots retain sensitive workspace ancestors",()=>fixture((root,write)=>{
+ write("secrets/prod/app.js","process.env.STRIPE_SECRET_KEY");
+ assert.equal(launch(root,{INPUT_PATH:"secrets/prod"}).status,1);
+ assert.throws(()=>auditRepository(path.join(root,"secrets","prod"),undefined,{workspace:root}),/SENSITIVE_SCAN_ROOT/);
 }));
 for(const[id,name,text]of[["SEC-10",".env.example","OPENAI_API_KEY="+fake],["SEC-11","app.js",'const secret="'+fake+'"; process.env.OPENAI_API_KEY;'],["SEC-12","app.js",'fetch("https://api.openai.com/'+fake+'")'],["SEC-13","package.json",'{"secret":"'+fake],["SEC-14","ops.yaml",template+'  bad:\n    provider: "'+fake]])test(id+" SEC-15–20 synthetic values absent from every output",()=>fixture((root,write)=>{
  write(name,text);const r=launch(root),c=spawnSync(process.execPath,[cli,root,"--json","--ci"],{encoding:"utf8"});
@@ -60,6 +76,13 @@ test("DET-11 no reason or implicit provider-wide ignore rejected",()=>{for(const
 test("DET-12 scoped ignores retain evidence and cannot cover siblings",()=>fixture((root,write)=>{
  write("test/fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("test/fixtures-sibling/package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  legacy:\n    provider: resend\n    path_prefix: test/fixtures/\n    reason: archived fixture\n");
  const r=auditRepository(root);assert.equal(r.status,"fail");assert.deepEqual(r.undocumented,["resend"]);assert.equal(r.items[0].finding.evidence.filter(x=>x.ignores.length).length,1);fs.unlinkSync(path.join(root,"test/fixtures-sibling/package.json"));const clean=auditRepository(root);assert.equal(clean.status,"pass");assert.equal(clean.items[0].ignored,true);assert.ok(machineReport(clean).findings[0].evidence[0].ignores[0].reason);
+}));
+test("DET-12 scoped ignores recalculate reported confidence",()=>fixture((root,write)=>{
+ write("fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("app.js",'fetch("https://api.resend.com")');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    path_prefix: fixtures/\n    reason: archived fixture\n");
+ const result=auditRepository(root),finding=result.items[0].finding;
+ assert.equal(finding.confidence,"weak");assert.equal(result.items[0].informationalOnly,true);
+ assert.equal(finding.activeConfidence,"weak");assert.match(formatReport(result),/\(weak\)/);
+ const machineFinding=machineReport(result).findings[0];assert.equal(machineFinding.confidence,"weak");assert.equal(machineFinding.activeConfidence,"weak");
 }));
 test("ACTION-04 ACTION-05 fixed output grammar and escaped HTML summary",()=>fixture((root,write)=>{
  const ticks=String.fromCharCode(96).repeat(3);write("package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    scope: all\n    reason: '<script>"+ticks+" ::error:: %0A</script>'\n");
