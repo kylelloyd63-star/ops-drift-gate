@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Skip Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames without reading their contents.
+- Enforce canonical LF line endings in packaged files and normalize repository text to LF for reproducible cross-platform packages.
+- Publish to npm through OIDC trusted publishing with staged releases that require maintainer 2FA approval.
+- Known issue: `--json` output reports `tool.version` as `0.1.0`; `--version` correctly prints `0.1.1`.
+
 ## 0.1.0 — release candidate
 
 - Deterministic repository scanner for operational dependency and custody drift.
