@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Report `confidence` after scoped ignores are applied; retain `activeConfidence` as a deprecated compatibility alias with the same value.
+
 ## 0.1.1
 
 - Skip Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames without reading their contents.
