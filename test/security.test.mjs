@@ -76,7 +76,8 @@ test("DET-12 scoped ignores recalculate reported confidence",()=>fixture((root,w
  write("fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("app.js",'fetch("https://api.resend.com")');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    path_prefix: fixtures/\n    reason: archived fixture\n");
  const result=auditRepository(root),finding=result.items[0].finding;
  assert.equal(finding.confidence,"weak");assert.equal(result.items[0].informationalOnly,true);
- assert.match(formatReport(result),/\(weak\)/);assert.equal(machineReport(result).findings[0].confidence,"weak");
+ assert.equal(finding.activeConfidence,"weak");assert.match(formatReport(result),/\(weak\)/);
+ const machineFinding=machineReport(result).findings[0];assert.equal(machineFinding.confidence,"weak");assert.equal(machineFinding.activeConfidence,"weak");
 }));
 test("ACTION-04 ACTION-05 fixed output grammar and escaped HTML summary",()=>fixture((root,write)=>{
  const ticks=String.fromCharCode(96).repeat(3);write("package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    scope: all\n    reason: '<script>"+ticks+" ::error:: %0A</script>'\n");
