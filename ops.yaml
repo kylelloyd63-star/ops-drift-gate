@@ -1,0 +1,24 @@
+# Custody manifest for this repository.
+# test/, tests/, __tests__/, fixtures/, and *.test.* paths are excluded unless scan.include_tests is true.
+version: 1
+services:
+  github-actions:
+    provider: github-actions
+    purpose: Continuous integration and the manual npm publish workflow
+    required_for_production: true
+    custody:
+      owner: Dripstatic Studios
+      billing_owner: Dripstatic Studios
+      transferable: true
+      recovery_procedure: GitHub Actions settings for this repository
+  npm-registry:
+    provider: npm
+    purpose: Public package distribution
+    required_for_production: true
+    custody:
+      owner: Dripstatic Studios
+      billing_owner: Dripstatic Studios
+      transferable: true
+      recovery_procedure: npm trusted publishing; a maintainer approves each staged publish with 2FA
+checks:
+  hygiene: false

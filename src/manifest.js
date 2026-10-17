@@ -99,10 +99,20 @@ function fields(value, allowed) {
   for (const key of Object.keys(value)) if (!allowed.includes(key) && !/^x-[a-zA-Z0-9._-]+$/.test(key)) fail("UNKNOWN_MANIFEST_FIELD");
 }
 function optionalText(value) { if (value !== null && (typeof value !== "string" || !value.trim())) fail("INVALID_MANIFEST_TEXT"); return value === null ? null : value.trim(); }
+function booleanOption(value, code) { if (typeof value !== "boolean") fail(code); return value; }
 export function validateManifest(raw) {
-  checkTree(raw); fields(raw, ["version", "services", "ignores"]);
+  checkTree(raw); fields(raw, ["version", "services", "ignores", "scan", "checks"]);
   if (!Object.hasOwn(raw, "version") || raw.version !== 1) fail("Manifest version must be 1.");
   if (!Object.hasOwn(raw, "services") || !record(raw.services)) fail("MANIFEST_SERVICES_REQUIRED");
+  const scan = { include_tests: false }, checks = { hygiene: false };
+  if (Object.hasOwn(raw, "scan")) {
+    fields(raw.scan, ["include_tests"]);
+    if (Object.hasOwn(raw.scan, "include_tests")) scan.include_tests = booleanOption(raw.scan.include_tests, "INVALID_SCAN_OPTION");
+  }
+  if (Object.hasOwn(raw, "checks")) {
+    fields(raw.checks, ["hygiene"]);
+    if (Object.hasOwn(raw.checks, "hygiene")) checks.hygiene = booleanOption(raw.checks.hygiene, "INVALID_CHECK_OPTION");
+  }
   const services = Object.create(null), ignores = Object.create(null);
   for (const [id, value] of Object.entries(raw.services)) {
     fields(value, ["provider", "purpose", "required_for_production", "custody"]);
@@ -140,7 +150,7 @@ export function validateManifest(raw) {
       ignores[id] = out;
     }
   }
-  return { version: 1, services, ignores };
+  return { version: 1, services, ignores, scan, checks };
 }
 export function loadManifest(rootInput, explicitPath, guard) {
   const root = repositoryRoot(rootInput);

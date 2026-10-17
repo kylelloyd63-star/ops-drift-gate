@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
+- Read `tool.version` from `package.json` for `--json`, `--version`, and error JSON. The published `0.1.1` package still reports `0.1.0` in `--json`; this repository version is not published and has no release tag.
+- Skip `test/`, `tests/`, `__tests__/`, `fixtures/`, and `*.test.*` paths by default. Set `scan.include_tests: true` or pass `--include-tests` to scan them.
+- Add `ops-drift init`, which writes a starter `ops.yaml` from strong and corroborated providers. A missing manifest now says to run that command.
+- Detect form backends (FormSubmit, Formspree, Netlify Forms), static hosting (GitHub Pages, Cloudflare Pages, Netlify, and Vercel deploy workflows), custom domain `CNAME` files, and npm publish configuration or workflows.
+- Add optional hygiene checks for secret patterns, personal webmail addresses, and local absolute paths. Findings record a rule and location only. Known secret-bearing files are still not read.
 - Report `confidence` after scoped ignores are applied; retain `activeConfidence` as a deprecated compatibility alias with the same value.
 
 ## 0.1.1

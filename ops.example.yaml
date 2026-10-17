@@ -1,4 +1,8 @@
 version: 1
+scan:
+  include_tests: false
+checks:
+  hygiene: false
 services:
   stripe-production:
     provider: stripe

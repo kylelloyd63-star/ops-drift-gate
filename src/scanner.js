@@ -1,18 +1,27 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SERVICE_RULES } from "./rules.js";
+import { isTestDirectoryName, isTestFileName } from "./exclusions.js";
 import { checkGitRepresentation } from "./git-index.js";
+import { inspectHygiene } from "./hygiene.js";
+import { SERVICE_RULES } from "./rules.js";
 import { LIMITS, checkedPath, fail, isSensitivePath, readBounded, repositoryRoot, safeError, safeText, snapshotGuard } from "./safety.js";
 
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".cache", "coverage", "vendor"]);
 const ENV_TEMPLATES = new Set([".env.example", ".env.sample", ".env.template"]);
+const HTML_ENDPOINT = new Set([".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".php"]);
 const TEXT_EXTENSIONS = new Set([
   ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json", ".jsonc", ".yaml", ".yml", ".toml",
   ".py", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".sh", ".bash", ".zsh", ".md", ".txt", ".html", ".css"
 ]);
 
 function normalize(p) { return p.split(path.sep).join("/"); }
-function* walk(root, limits, checkTime, location, guard) {
+function isWorkflow(rel) { return /(^|\/)\.github\/workflows\/[^/]+\.(yml|yaml)$/i.test(rel); }
+function isVercelConfig(rel) { return /(^|\/)vercel\.json$/i.test(rel); }
+function firstMatch(regex, text) {
+  const flags = regex.flags.includes("g") ? regex.flags : `${regex.flags}g`;
+  return new RegExp(regex.source, flags).exec(text);
+}
+function* walk(root, limits, checkTime, location, guard, includeTests, onExclude) {
   const pending = [root];
   let entries = 0;
   while (pending.length) {
@@ -31,6 +40,7 @@ function* walk(root, limits, checkTime, location, guard) {
         if (rel.length > LIMITS.path) fail("PATH_LENGTH_LIMIT");
         if (entry.isSymbolicLink()) fail("SYMLINK_OR_JUNCTION");
         if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
+        if (!includeTests && ((entry.isDirectory() && isTestDirectoryName(entry.name)) || (entry.isFile() && isTestFileName(entry.name)))) { onExclude(); continue; }
         if (rel.split(path.sep).length > limits.depth) fail("PATH_DEPTH_LIMIT");
         if (entry.isDirectory()) {
           if (!checkedPath(root, full, guard).isDirectory()) fail("FILESYSTEM_CHANGED");
@@ -54,7 +64,7 @@ function lineLookup(text) {
     return low + 1;
   };
 }
-function strengthForKind(kind) { return ["package", "env", "file", "workflow"].includes(kind) ? "strong" : "signal"; }
+function strengthForKind(kind) { return ["package", "env", "file", "workflow", "endpoint"].includes(kind) ? "strong" : "signal"; }
 function addEvidence(store, rule, evidence) {
   const finding = store.get(rule.id) ?? { id: rule.id, name: rule.name, category: rule.category, evidence: [] };
   const candidate = { service: rule.id, serviceName: rule.name, category: rule.category, strength: strengthForKind(evidence.kind), ...evidence };
@@ -111,6 +121,10 @@ function inspectPackages(rel, text, store) {
       if (value && typeof value === "object" && !Array.isArray(value)) for (const name of Object.keys(value)) packages.add(name);
     }
     for (const pkg of packages) for (const rule of SERVICE_RULES) if (rule.packagePatterns?.some(re => re.test(pkg))) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package dependency matching ${rule.id}` });
+    for (const rule of SERVICE_RULES) {
+      const key = rule.packageKeys?.find(name => json[name] && typeof json[name] === "object" && !Array.isArray(json[name]));
+      if (key) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package.json ${key} configuration` });
+    }
 }
 
 export function scanRepository(rootInput, options = {}, sharedGuard) {
@@ -127,31 +141,48 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
   services.seen = new Set(); services.limit = limits.evidence;
   const envVars = new Map();
   const skippedSensitiveFiles = [];
+  const hygieneFindings = [];
+  const hygieneSeen = new Set();
   const warnings = [];
+  const includeTests = options.includeTests === true;
+  const hygieneEnabled = options.hygiene === true;
   let currentPath = ".";
-  let scannedFiles = 0, candidateBytes = 0;
+  let scannedFiles = 0, candidateBytes = 0, excludedTestPaths = 0;
+  const noteHygiene = (file, finding) => {
+    const key = `${file}|${finding.kind}|${finding.rule}|${finding.line ?? ""}`;
+    if (hygieneSeen.has(key)) return;
+    if (hygieneSeen.size >= limits.evidence) fail("HYGIENE_COUNT_LIMIT");
+    hygieneSeen.add(key);
+    hygieneFindings.push({ kind: finding.kind, rule: finding.rule, path: safeText(file), line: finding.line ?? null });
+  };
 
   try {
   currentPath = ".git/index";
   checkGitRepresentation(root, guard, options.workspace);
   currentPath = ".";
-  for (const rel of walk(root, limits, checkTime, rel => { currentPath = normalize(rel) || "."; }, guard)) {
+  for (const rel of walk(root, limits, checkTime, rel => { currentPath = normalize(rel) || "."; }, guard, includeTests, () => { excludedTestPaths++; })) {
     const normalized = normalize(rel);
     const full = path.join(root, rel);
-    if (isSensitivePath(rel)) { skippedSensitiveFiles.push(safeText(normalized)); continue; }
+    if (isSensitivePath(rel)) {
+      skippedSensitiveFiles.push(safeText(normalized));
+      if (hygieneEnabled) noteHygiene(normalized, { kind: "sensitive-file", rule: "sensitive-path", line: null });
+      continue;
+    }
     for (const rule of SERVICE_RULES) if (rule.filePatterns?.some(re => re.test(normalized))) addEvidence(services, rule, { path: normalized, kind: rule.id === "github-actions" ? "workflow" : "file", detail: "matching operational file" });
     const ext = path.extname(rel).toLowerCase();
     const base = path.basename(rel).toLowerCase();
     const envTemplate = ENV_TEMPLATES.has(base);
     const dependencyTextFile = /^requirements(?:-[^.]+)?\.txt$/.test(base);
-    if ((!TEXT_EXTENSIONS.has(ext) && base !== "dockerfile" && base !== "procfile" && !envTemplate) || ([".md", ".txt"].includes(ext) && !dependencyTextFile)) continue;
+    const documentation = [".md", ".txt"].includes(ext) && !dependencyTextFile;
+    const textCandidate = TEXT_EXTENSIONS.has(ext) || base === "dockerfile" || base === "procfile" || envTemplate;
+    if (!textCandidate || (documentation && !hygieneEnabled)) continue;
 
     if (++scannedFiles > limits.candidates) fail("CANDIDATE_COUNT_LIMIT");
     const { text, bytes } = readBounded(root, full, limits.fileBytes, limits.totalBytes - candidateBytes, guard);
     candidateBytes += bytes;
     const lineFor = lineLookup(text);
     inspectPackages(rel, text, services);
-    const detectionEligible = envTemplate || dependencyTextFile || ![".md", ".txt"].includes(ext);
+    const detectionEligible = envTemplate || dependencyTextFile || !documentation;
     const extractedEnv = detectionEligible ? extractEnvNames(text, envTemplate) : [];
     let matches = 0;
 
@@ -167,15 +198,25 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
       for (const rule of SERVICE_RULES) if (rule.envPatterns?.some(re => re.test(env.name))) addEvidence(services, rule, { path: normalized, kind: "env", detail: `environment variable name: ${env.name}`, line: lineFor(env.index) });
     }
 
-    for (const rule of SERVICE_RULES) {
-      if (!detectionEligible) continue;
-      if (rule.id === "scheduled-jobs" && !/(^|\/)\.github\/workflows\/[^/]+\.(yml|yaml)$/i.test(normalized) && !/(^|\/)vercel\.json$/i.test(normalized)) continue;
-      for (const regex of rule.contentPatterns ?? []) {
-        const flags = regex.flags.includes("g") ? regex.flags : `${regex.flags}g`;
-        const match = new RegExp(regex.source, flags).exec(text);
-        if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "content", detail: `matched signature: /${regex.source}/`, line: lineFor(match.index) });
+    if (detectionEligible) for (const rule of SERVICE_RULES) {
+      const contentHere = rule.id !== "scheduled-jobs" || isWorkflow(normalized) || isVercelConfig(normalized);
+      if (contentHere) for (const regex of rule.contentPatterns ?? []) {
+        const match = firstMatch(regex, text);
+        if (match?.index == null) continue;
+        const kind = rule.htmlEndpoint && HTML_ENDPOINT.has(ext) ? "endpoint" : "content";
+        addEvidence(services, rule, { path: normalized, kind, detail: kind === "endpoint" ? `form or script endpoint: /${regex.source}/` : `matched signature: /${regex.source}/`, line: lineFor(match.index) });
+      }
+      if (isWorkflow(normalized)) for (const regex of rule.workflowPatterns ?? []) {
+        const match = firstMatch(regex, text);
+        if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "workflow", detail: `workflow operational step: /${regex.source}/`, line: lineFor(match.index) });
+      }
+      for (const item of rule.fileContent ?? []) {
+        if (!item.file.test(normalized)) continue;
+        const match = firstMatch(item.pattern, text);
+        if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "file", detail: "matching operational file content", line: lineFor(match.index) });
       }
     }
+    if (hygieneEnabled) inspectHygiene(text, lineFor, finding => noteHygiene(normalized, finding));
     checkTime();
   }
   if (!sharedGuard) guard.verify(checkTime);
@@ -190,6 +231,9 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     services: findings,
     envVars: [...envVars.values()].sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
     skippedSensitiveFiles: skippedSensitiveFiles.sort(),
+    excludedTestPaths,
+    hygieneEnabled,
+    hygieneFindings,
     scannedFiles
   };
 }

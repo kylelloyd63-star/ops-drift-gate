@@ -8,6 +8,7 @@ Ops Drift Gate is designed to inspect repositories while minimizing exposure to 
 - Example/template env files may be scanned for variable **names**.
 - The scanner does not intentionally extract or report secret values.
 - Source and configuration files that are not classified as sensitive are read for signatures. If a secret is hardcoded in ordinary source code, Ops Drift Gate may read that file; this tool is not a secrets scanner and should not be treated as one.
+- Optional hygiene checks (`--hygiene`, or `checks.hygiene: true`) look for a small set of secret patterns, personal webmail addresses, and local absolute paths in files the scanner already reads, plus documentation files when hygiene is on. They record a rule name and location only. They do not print matched secrets, addresses, or path text. They still do not open known secret-bearing files; when hygiene is on, a skipped secret file can be reported as present. This is not a general secrets audit.
 - Reports should contain variable names, provider evidence, and repository-relative locations—not local absolute filesystem paths.
 
 Do not put passwords, recovery codes, private keys, or sensitive billing details in `ops.yaml`. Store references to protected runbooks instead.

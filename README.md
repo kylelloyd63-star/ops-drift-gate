@@ -14,13 +14,15 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**v0.1.1 is published.** This hardening release keeps the v0.1 detection/custody model and adds broader credential-file exclusions plus reproducible cross-platform packaging. The npm package `ops-drift-gate@0.1.1` is published, and the tagged GitHub Action example below uses `v0.1.1`.
+**Repository version 0.1.2.** It is not published to npm and there is no `v0.1.2` release tag. The published package and the tagged Action remain `ops-drift-gate@0.1.1` / `v0.1.1`.
+
+This source tree skips test and fixture paths by default, writes a starter manifest with `ops-drift init`, and detects form backends, static hosting, custom domains, and npm publishing in addition to the v0.1 providers. `--json` reads `tool.version` from `package.json`. The published 0.1.1 package still reports `tool.version` as `0.1.0`.
 
 The core has zero runtime dependencies and requires Node 24+.
 
 Run in an isolated stable checkout, before executing target code and with no concurrent writer. See [supported execution and limits](docs/execution-model.md). A complete result does not establish filesystem isolation.
 
-Initial provider detection includes Vercel, Supabase, Stripe, Resend, Twilio, Firebase, AWS, Cloudflare, Sentry, OpenAI API, GitHub Actions, and scheduled jobs.
+Provider detection includes Vercel, Netlify, GitHub Pages, Cloudflare, Cloudflare Pages, custom domains, Supabase, Stripe, Resend, Twilio, Firebase, AWS, Sentry, OpenAI API, GitHub Actions, the npm registry, FormSubmit, Formspree, Netlify Forms, and scheduled jobs.
 
 ## Quick start
 
@@ -30,13 +32,21 @@ From a source checkout:
 node src/cli.js .
 ```
 
-The npm package `ops-drift-gate@0.1.1` is published. From any machine with Node 24+:
+Write a starter manifest from what the scanner found:
+
+```bash
+node src/cli.js init .
+```
+
+The published npm package is still `ops-drift-gate@0.1.1` and does not include the 0.1.2 commands or detectors. From any machine with Node 24+:
 
 ```bash
 npx --yes ops-drift-gate@0.1.1 .
 ```
 
-Future automated publishes use OIDC trusted publishing plus npm staged publishing so a maintainer still approves each release with 2FA.
+Future automated publishes use OIDC trusted publishing plus npm staged publishing so a maintainer still approves each release with 2FA. Publishing 0.1.2 is a separate maintainer step; this repository does not tag or publish it by itself.
+
+This repository ships an `ops.yaml` for GitHub Actions and the npm registry. A scan of the repository, with test paths excluded, passes `--ci --require-custody`.
 
 Gate undocumented providers in CI:
 
@@ -80,6 +90,17 @@ services:
 
 The v0.1 parser deliberately supports a small mapping-only YAML subset: nested key/value mappings, strings, booleans, numbers, and nulls. No arrays, anchors, tags, or executable YAML features.
 
+Optional root fields:
+
+```yaml
+scan:
+  include_tests: false
+checks:
+  hygiene: false
+```
+
+`scan.include_tests` defaults to false. `checks.hygiene` defaults to false. `ops-drift init` writes one service per strong or corroborated provider, with custody fields left null and hygiene left off. It refuses to overwrite an existing manifest unless `--force` is passed, and `--force` only replaces `ops.yaml`. `ops.yml` or `ops.json` must be removed by hand. `--force` does not keep previous custody text or ignore rules.
+
 ### Reasoned ignores
 
 A detected provider can be explicitly acknowledged as a false positive or intentionally irrelevant, but an ignore must carry a reason:
@@ -100,7 +121,7 @@ Unknown ordinary fields are errors at the root, service, custody, and ignore lev
 
 Evidence is classified deterministically.
 
-- **strong** — package dependency, environment-variable name, known operational file, or workflow file.
+- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an HTML/JSX/Vue/Svelte/PHP form or script endpoint.
 - **corroborated** — multiple non-strong signals agree.
 - **weak** — one content signature only.
 
@@ -108,7 +129,7 @@ Weak findings are reported but do **not** fail the undocumented-provider gate un
 
 ## GitHub Action
 
-Use the v0.1.1 GitHub Action:
+Use the published v0.1.1 GitHub Action. `v0.1.2` is not tagged.
 
 ```yaml
 name: Operational custody check
@@ -143,6 +164,8 @@ Inputs:
 - `manifest` — optional path confined to the scan root. Blank discovers `ops.yaml`, `ops.yml`, or `ops.json`.
 - `fail_on_undocumented` — fail for strong/corroborated providers with no manifest instance.
 - `require_custody` — also fail when production-required documented instances lack owner, billing owner, transferability, or a recovery-procedure reference.
+- `include_tests` — set `true` or `false` to override the manifest. Blank uses `scan.include_tests`.
+- `hygiene` — set `true` or `false` to override the manifest. Blank uses `checks.hygiene`.
 
 The Action uses the Node 24 JavaScript Action runtime.
 
@@ -155,7 +178,8 @@ A provider can be detected from evidence such as:
 - a package dependency (`stripe`, `@supabase/supabase-js`)
 - a known operational file (`vercel.json`, `wrangler.toml`, GitHub workflows)
 - an environment-variable **name** (`STRIPE_SECRET_KEY`, `SUPABASE_URL`)
-- a provider-specific hostname or API signature
+- a provider-specific hostname, form action, script source, or API signature
+- a static-hosting workflow, `CNAME` file, or npm publish workflow / `publishConfig`
 - scheduled-job configuration
 
 Each finding records repository-relative evidence and, when possible, a line number.
@@ -168,7 +192,7 @@ Exit codes: `0` for a complete scan with enabled policies passing; `1` for path,
 
 Default limits: 100,000 visited entries; 10,000 candidate files; 1 MiB per candidate; 256 MiB total candidate bytes; 64 path components; 20,000 evidence/variable-name records; one million ignore comparisons and 20,000 matched-ignore annotations; 30 seconds of scan traversal; manifest 256 KiB, 10,000 keys, depth 16, text fields 2,048 characters; path input 4,096 characters. Limits cause an explicit incomplete error, never a pass. The scan-time budget is cooperative; it cannot preempt a blocking filesystem call. Node API callers may lower traversal limits but cannot raise them.
 
-Excluded directory names: `.git`, `node_modules`, `dist`, `build`, `.next`, `.cache`, `coverage`, `vendor`. Sensitive files and documentation are outside the declared detection scope. Links, junctions, hardlinked candidates, relevant unreadable/malformed inputs, invalid UTF-8 and NUL-containing candidates produce errors. Resource bounds count included entries before content reads. Traversal is iterative and streams directory entries.
+Excluded directory names: `.git`, `node_modules`, `dist`, `build`, `.next`, `.cache`, `coverage`, `vendor`. By default the scanner also does not descend into `test`, `tests`, `__tests__`, or `fixtures`, and it skips `*.test.*` files. Those names are case-sensitive. `scan.include_tests: true` or `--include-tests` scans them again. The exclusion count in the report is the number of skipped directories and test files, not every nested file. Sensitive files and documentation are outside the declared detection scope. Documentation is read only when hygiene checks are enabled, and then only for those checks. Links, junctions, hardlinked candidates, relevant unreadable/malformed inputs, invalid UTF-8 and NUL-containing candidates produce errors. Resource bounds count included entries before content reads. Traversal is iterative and streams directory entries.
 
 Run on a stable checkout with no concurrent writer. Audit-wide metadata checks include files read earlier and the manifest; Linux also verifies opened descriptors through `/proc/self/fd`. Portable Node APIs are not an atomic sandbox. Active-writer inputs are outside the supported deployment contract. See SECURITY.md and docs/execution-model.md.
 
@@ -176,7 +200,7 @@ Git index metadata is checked before source reads. Tracked symlinks are rejected
 
 ## Secret and privacy handling
 
-Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner**.
+Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner**. Optional hygiene checks are a narrow add-on for secret-shaped patterns, personal webmail addresses, and local absolute paths. They are off unless `--hygiene` is set or `checks.hygiene` is true. A finding names the rule and the file location. It does not repeat the matched secret, address, or path.
 
 - Known secret-bearing files are skipped without reading their contents. This includes real `.env*` files except the three exact example templates, exact or dot-suffixed `secret` / `secrets` / `credential` / `credentials` path components, hyphen/underscore-prefixed secret/credential data files, private-key/container formats, Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames. Secret-like source names such as `secretsManager.js` are scanned normally.
 - `.env.example`, `.env.sample`, and `.env.template` may be scanned for variable names.
@@ -188,15 +212,22 @@ Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner*
 ## CLI
 
 ```text
-ops-drift [path] [--ci] [--json] [--manifest ops.yaml] [--require-custody]
+ops-drift [path] [--ci] [--json] [--manifest ops.yaml] [--require-custody] [--include-tests] [--hygiene]
+ops-drift init [path] [--force] [--json] [--include-tests]
 
 --ci                exit 2 when the gate has blocking findings
 --json              emit machine-readable JSON
 --manifest <path>   use a specific manifest path
 --require-custody   fail for incomplete custody on production-required instances
+--include-tests     scan test and fixture paths
+--hygiene           enable secret, personal-email, and local-path checks
+init                write a starter ops.yaml
+--force             replace an existing ops.yaml
 --help              show help
 --version           show version
 ```
+
+`--json` reports `tool.version` from `package.json`. Exit codes are unchanged: `0` when a complete scan passes its enabled policies, `1` for usage or scan errors, and `2` under `--ci` when blocking findings remain. Without `--ci`, policy findings stay visible and the exit code stays `0`.
 
 ## What this is not
 
@@ -240,7 +271,7 @@ CI runs the full syntax/test check **and** exercises the repository as an actual
 
 - baseline/diff mode for PRs
 - baseline comparison of acknowledgements
-- additional ecosystems/providers
+- additional ecosystems/providers beyond the 0.1.2 hosting, form, and npm checks
 - JSON Schema/editor assistance
 - measured public-repository accuracy benchmark
 

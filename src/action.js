@@ -8,6 +8,12 @@ function booleanInput(name, fallback) {
   if (!["true", "false"].includes(value)) fail("INVALID_BOOLEAN_INPUT");
   return value === "true";
 }
+function optionalBoolean(name) {
+  const value = process.env[name];
+  if (value == null || value === "") return undefined;
+  if (!["true", "false"].includes(value)) fail("INVALID_BOOLEAN_INPUT");
+  return value === "true";
+}
 function output(status, undocumented = 0, custody = 0, complete = false) {
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, "undocumented_count=" + undocumented + "\nunknown_custody_count=" + custody + "\nstatus=" + status + "\ncomplete=" + complete + "\n");
 }
@@ -18,7 +24,9 @@ try {
   const result = auditRepository(root, manifest, {
     workspace: process.env.GITHUB_WORKSPACE,
     requireCustody: booleanInput("INPUT_REQUIRE_CUSTODY", "false"),
-    failOnUndocumented: booleanInput("INPUT_FAIL_ON_UNDOCUMENTED", "true")
+    failOnUndocumented: booleanInput("INPUT_FAIL_ON_UNDOCUMENTED", "true"),
+    includeTests: optionalBoolean("INPUT_INCLUDE_TESTS"),
+    hygiene: optionalBoolean("INPUT_HYGIENE")
   });
   const report = formatReport(result);
   console.log(report);
