@@ -12,6 +12,13 @@ const repo = path.join(here, "..");
 const cli = path.join(repo, "src", "cli.js");
 const packageVersion = JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8")).version;
 
+test("version module reads package.json instead of a hardcoded release", () => {
+  const source = fs.readFileSync(path.join(repo, "src", "version.js"), "utf8");
+  assert.equal(source.includes("0.1.0"), false);
+  assert.equal(source.includes("0.1.1"), false);
+  assert.match(source, /package\.json/);
+});
+
 test("JSON version matches the package version", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ops-drift-version-"));
   fs.writeFileSync(path.join(dir, "app.js"), "console.log('ok');\n");

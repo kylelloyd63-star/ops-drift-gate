@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
+- Read `tool.version` from `package.json` for `--version` and `--json`. This fixes the published 0.1.1 report, which printed `0.1.0`.
+- Skip `test/`, `tests/`, `__tests__/`, and `fixtures/` directories, plus `*.test.*` and `*.spec.*` files, unless `scan.include_tests` is true or `--include-tests` is set.
+- Add `ops-drift init`, which writes a starter `ops.yaml` and does not overwrite an existing manifest. A missing-manifest failure names that command.
+- Detect form backends (FormSubmit, Formspree, Netlify Forms, Getform, and Web3Forms), GitHub Pages, Netlify, Cloudflare Pages, custom domains, npm publish configuration, and PyPI.
+- Add optional `--hygiene` checks for secret-shaped tokens, personal email providers, and absolute local paths. Matched text is not copied into the report.
 - Report `confidence` after scoped ignores are applied; retain `activeConfidence` as a deprecated compatibility alias with the same value.
 
 ## 0.1.1
@@ -9,7 +14,7 @@
 - Skip Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames without reading their contents.
 - Enforce canonical LF line endings in packaged files and normalize repository text to LF for reproducible cross-platform packages.
 - Publish to npm through OIDC trusted publishing with staged releases that require maintainer 2FA approval.
-- Known issue: `--json` output reports `tool.version` as `0.1.0`; `--version` correctly prints `0.1.1`.
+- Known issue: `--json` output reports `tool.version` as `0.1.0`; `--version` correctly prints `0.1.1`. Fixed in 0.1.2.
 
 ## 0.1.0 — release candidate
 

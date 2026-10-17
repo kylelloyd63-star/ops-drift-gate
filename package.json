@@ -1,13 +1,13 @@
 {
   "name": "ops-drift-gate",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deterministic operational dependency and custody drift detection for Git repositories.",
   "type": "module",
   "bin": {"ops-drift": "src/cli.js"},
   "files": ["src", "action.yml", "README.md", "LICENSE", "docs/execution-model.md"],
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/cli.js && node --check src/scanner.js && node --check src/manifest.js && node --check src/audit.js && node --check src/report.js && node --check src/rules.js && node --check src/action.js && node --check src/index.js && node --check src/safety.js && node --check src/git-index.js && node --check src/version.js && node --test test/*.test.mjs",
+    "check": "node --check src/cli.js && node --check src/scanner.js && node --check src/manifest.js && node --check src/audit.js && node --check src/report.js && node --check src/rules.js && node --check src/action.js && node --check src/index.js && node --check src/safety.js && node --check src/git-index.js && node --check src/version.js && node --check src/init.js && node --check src/hygiene.js && node --test test/*.test.mjs",
     "package-check": "node scripts/package-check.mjs"
   },
   "engines": {"node": ">=24"},
@@ -20,5 +20,6 @@
   "bugs": {
     "url": "https://github.com/kylelloyd63-star/ops-drift-gate/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": "Dripstatic Studios <hello@dripstaticstudios.com>"
 }

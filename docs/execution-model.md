@@ -16,6 +16,8 @@ The scanner checks path components, rejects links and candidate hardlinks, compa
 
 These are mutation detectors, not atomic confinement. Transient changes, mount/reparse tricks or an active writer may race pathname checks. The host must enforce the deployment assumption. No stronger guarantee is made by a complete result.
 
+By default the scanner does not descend into `test`, `tests`, `__tests__`, or `fixtures` directories and does not read `*.test.*` or `*.spec.*` files. Set `scan.include_tests: true` in the custody manifest, or pass the caller's include-tests option, to read them. Skipped test paths are not opened. Sensitive files outside those trees are still skipped without a content read. Optional hygiene checks use the same candidate set and are off unless the caller enables them.
+
 Copying an untrusted live tree would still race during collection; making a destination read-only would not confine those source reads. Portable Node 24 path/descriptor APIs do not provide directory-relative atomic confinement on both Linux and Windows. Adding a native sandbox or handle helper would create a new security boundary and is intentionally outside v0.1.
 
 ## Git checkout representation

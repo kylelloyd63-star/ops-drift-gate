@@ -28,5 +28,5 @@ jobs:
         uses: ./
         with:
           path: .
-          fail_on_undocumented: false
-          require_custody: false
+          fail_on_undocumented: true
+          require_custody: true

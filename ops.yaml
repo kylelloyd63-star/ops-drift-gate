@@ -1,0 +1,21 @@
+# Custody manifest for this repository. Test and fixture paths are skipped by default.
+version: 1
+services:
+  github-actions:
+    provider: github-actions
+    purpose: Continuous integration and the npm publish workflow
+    required_for_production: true
+    custody:
+      owner: Dripstatic Studios
+      billing_owner: Dripstatic Studios
+      transferable: true
+      recovery_procedure: GitHub Actions settings and .github/workflows
+  npm:
+    provider: npm
+    purpose: Public package distribution on the npm registry
+    required_for_production: true
+    custody:
+      owner: Dripstatic Studios
+      billing_owner: Dripstatic Studios
+      transferable: true
+      recovery_procedure: Trusted publishing workflow .github/workflows/publish-npm.yml
