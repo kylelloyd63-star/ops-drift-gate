@@ -45,17 +45,23 @@ test("default scan skips test directories, fixture directories, and *.test.* fil
   const root = temp();
   try {
     write(root, "src/app.js", "console.log('ok');\n");
+    write(root, "src/billing.js", "process.env.STRIPE_SECRET_KEY;\n");
     write(root, "test/fixtures/package.json", '{"dependencies":{"stripe":"*"}}');
     write(root, "tests/app.js", "process.env.OPENAI_API_KEY;\n");
     write(root, "__tests__/app.js", "process.env.RESEND_API_KEY;\n");
     write(root, "fixtures/requirements.txt", "boto3==1.0.0\n");
     write(root, "src/app.test.js", "process.env.SENTRY_DSN;\n");
     write(root, "test-utils/package.json", '{"dependencies":{"resend":"*"}}');
-    write(root, "Test/app.js", "process.env.STRIPE_SECRET_KEY;\n");
     const skipped = auditRepository(root);
     assert.equal(skipped.status, "fail");
     assert.deepEqual(ids(skipped), ["resend", "stripe"]);
+    assert.equal(provider(skipped, "stripe").finding.evidence.some(item => item.path === "src/billing.js"), true);
+    assert.equal(provider(skipped, "stripe").finding.evidence.some(item => item.path.startsWith("test/")), false);
     assert.ok(skipped.scan.excludedTestPaths >= 4);
+    if (process.platform !== "win32") {
+      write(root, "Test/probe.js", "process.env.TWILIO_ACCOUNT_SID;\n");
+      assert.ok(ids(auditRepository(root)).includes("twilio"));
+    }
     const included = auditRepository(root, undefined, { includeTests: true });
     for (const id of ["stripe", "openai", "resend", "aws", "sentry"]) assert.ok(ids(included).includes(id), id);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
