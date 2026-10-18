@@ -905,15 +905,52 @@ test("npm publish targets only the workspace npm would publish", () => temp((roo
 }));
 
 test("deferred npm lookup stays within the time budget", () => {
-  const packages = [];
+  const packages = [{ dir: "", name: "root", registry: "private", patterns: ["packages/*"] }];
   for (let i = 0; i < 9000; i++) packages.push({ dir: "packages/p" + i, name: "p" + i, registry: "private", patterns: [] });
   const target = typeof rules.indexPackages === "function" ? rules.indexPackages(packages) : packages;
-  const command = "npm publish" + " -w p8999".repeat(120000);
+  const command = "npm publish" + " -w p8999".repeat(120000) + " -w nothere".repeat(120000);
   const started = performance.now();
   const result = rules.barePublishIsPublic(target, command);
   const elapsed = performance.now() - started;
   assert.equal(result, false);
   assert.ok(elapsed < 1000, `deferred npm lookup took ${elapsed}ms`);
+});
+
+test("a segment wildcard workspace glob stays within the time budget", () => {
+  const patterns = [];
+  for (let n = 0; n < 64; n++) patterns.push("**/*/**/*/**/*/**/*/**/*/**/*/**/*/b" + n);
+  const deep = "a/a/a/a/a/a/a/a/a/a/a/a/a/a";
+  const packages = [{ dir: "", name: "root", registry: "private", patterns }];
+  for (let i = 0; i < 400; i++) packages.push({ dir: deep + "/c" + i, name: "c" + i, registry: "private", patterns: [] });
+  let checks = 0;
+  const started = performance.now();
+  const index = rules.indexPackages(packages, () => { checks += 1; });
+  const elapsed = performance.now() - started;
+  assert.equal(index.workspaces.length, 0);
+  assert.ok(checks > 0, "indexPackages did not check the time limit");
+  assert.ok(elapsed < 1000, `workspace index took ${elapsed}ms`);
+  const github = "https://npm.pkg.github.com";
+  temp((root, write) => {
+    const workflow = "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n";
+    write(".github/workflows/publish.yml", workflow);
+    write("packages/other/package.json", JSON.stringify({ name: "other", publishConfig: { registry: github } }));
+    write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/app-*"] }));
+    write("packages/app-one/package.json", JSON.stringify({ name: "app-one" }));
+    assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+    fs.unlinkSync(path.join(root, "packages/app-one/package.json"));
+    write("packages/app-one/nested/package.json", JSON.stringify({ name: "nested-app" }));
+    assert.equal(provider(scanRepository(root), "npm"), undefined);
+    fs.unlinkSync(path.join(root, "packages/app-one/nested/package.json"));
+    write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/pkg-*"] }));
+    write("packages/pkg-a/package.json", JSON.stringify({ name: "pkg-a" }));
+    assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+    fs.unlinkSync(path.join(root, "packages/pkg-a/package.json"));
+    write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/lib-?"] }));
+    write("packages/lib-tool/package.json", JSON.stringify({ name: "lib-tool" }));
+    assert.equal(provider(scanRepository(root), "npm"), undefined);
+    write("packages/lib-x/package.json", JSON.stringify({ name: "lib-x" }));
+    assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  });
 });
 
 test("nested workspace globs and parent directories publish public packages", () => temp((root, write) => {

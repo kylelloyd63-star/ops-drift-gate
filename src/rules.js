@@ -658,53 +658,105 @@ function publishScope(command, checkTime) {
 function cleanToken(token) {
   return String(token).replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\/$/, "");
 }
-function workspaceMatch(pattern, dir) {
+const GLOB_LIMIT = 16;
+function splitGlob(value) {
   const parts = [];
-  for (const part of pattern.replace(/^\.\//, "").split("/")) {
+  for (const part of String(value).replace(/^\.\//, "").split("/")) {
     if (!part) continue;
     if (part === "**" && parts[parts.length - 1] === "**") continue;
     parts.push(part);
-    if (parts.length > 16) return false;
+    if (parts.length > GLOB_LIMIT) return null;
   }
-  const dirs = dir.replace(/^\.\//, "").split("/").filter(Boolean);
-  if (dirs.length > 16) return false;
-  const walk = (left, right) => {
-    if (left === parts.length) return right === dirs.length;
-    if (parts[left] === "**") {
-      for (let skip = right; skip <= dirs.length; skip++) if (walk(left + 1, skip)) return true;
-      return false;
-    }
-    if (right >= dirs.length || (parts[left] !== "*" && parts[left] !== dirs[right])) return false;
-    return walk(left + 1, right + 1);
-  };
-  return walk(0, 0);
+  return parts;
 }
-export function indexPackages(packages) {
+function segmentMatch(pattern, text) {
+  if (pattern === "*") return true;
+  if (!pattern.includes("*") && !pattern.includes("?")) return pattern === text;
+  let pi = 0;
+  let ti = 0;
+  let star = -1;
+  let mark = 0;
+  while (ti < text.length) {
+    const ch = pattern[pi];
+    if (pi < pattern.length && (ch === "?" || ch === text[ti])) {
+      pi++;
+      ti++;
+    } else if (pi < pattern.length && ch === "*") {
+      star = pi;
+      mark = ti;
+      pi++;
+    } else if (star !== -1) {
+      pi = star + 1;
+      mark++;
+      ti = mark;
+    } else return false;
+  }
+  while (pi < pattern.length && pattern[pi] === "*") pi++;
+  return pi === pattern.length;
+}
+function matchParts(parts, dir) {
+  const dirs = splitGlob(dir);
+  if (!dirs) return false;
+  const n = parts.length;
+  const m = dirs.length;
+  const width = m + 1;
+  const cells = new Uint8Array((n + 1) * width);
+  cells[0] = 1;
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j <= m; j++) {
+      if (!cells[i * width + j] || i === n) continue;
+      const part = parts[i];
+      if (part === "**") {
+        cells[(i + 1) * width + j] = 1;
+        if (j < m) cells[i * width + j + 1] = 1;
+      } else if (j < m && segmentMatch(part, dirs[j])) cells[(i + 1) * width + j + 1] = 1;
+    }
+  }
+  return cells[n * width + m] === 1;
+}
+export function indexPackages(packages, checkTime) {
   const byName = new Map();
   const byDir = new Map();
   const workspaces = [];
   const root = packages.find(pkg => pkg.dir === "");
-  const patterns = root?.patterns ?? [];
+  const patterns = [];
+  for (const pattern of root?.patterns ?? []) {
+    const parts = splitGlob(pattern);
+    if (parts) patterns.push(parts);
+  }
   let workspacesPublic = false;
+  let steps = 0;
   for (const pkg of packages) {
+    if ((steps++ & 63) === 0) checkTime?.();
     if (pkg.name && !byName.has(pkg.name)) byName.set(pkg.name, pkg);
     if (!byDir.has(pkg.dir)) byDir.set(pkg.dir, pkg);
-    if (!pkg.dir || !patterns.some(pattern => workspaceMatch(pattern, pkg.dir))) continue;
+    if (!pkg.dir || patterns.length === 0) continue;
+    let matched = false;
+    for (let i = 0; i < patterns.length; i++) {
+      if ((steps++ & 63) === 0) checkTime?.();
+      if (matchParts(patterns[i], pkg.dir)) { matched = true; break; }
+    }
+    if (!matched) continue;
     workspaces.push(pkg);
     if (pkg.registry !== "private") workspacesPublic = true;
   }
-  return { byName, byDir, workspaces, sawWorkspace: workspaces.length > 0, workspacesPublic, rootPublic: !root || root.registry !== "private" };
+  const publicParents = new Set();
+  for (const pkg of workspaces) {
+    if (pkg.registry === "private") continue;
+    const parts = pkg.dir.split("/");
+    let ancestor = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      ancestor = ancestor ? ancestor + "/" + parts[i] : parts[i];
+      publicParents.add(ancestor);
+    }
+  }
+  return { byName, byDir, workspaces, publicParents, sawWorkspace: workspaces.length > 0, workspacesPublic, rootPublic: !root || root.registry !== "private" };
 }
 function selectorIsPublic(index, token) {
   const cleaned = cleanToken(token);
   const exact = index.byName.get(cleaned) || index.byDir.get(cleaned);
   if (exact) return exact.registry !== "private";
-  if (!cleaned) return false;
-  const prefix = cleaned + "/";
-  for (const pkg of index.workspaces) {
-    if ((pkg.dir === cleaned || pkg.dir.startsWith(prefix)) && pkg.registry !== "private") return true;
-  }
-  return false;
+  return cleaned !== "" && index.publicParents.has(cleaned);
 }
 export function barePublishIsPublic(index, command, directory = "", checkTime) {
   const scope = publishScope(stripShellComment(command), checkTime);

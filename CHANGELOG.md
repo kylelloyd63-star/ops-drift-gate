@@ -16,6 +16,7 @@
 - A private registry suppresses only the package or workspace that publish actually targets. Only the top-level `url` of an HTTP call config counts. Cloudflare Pages ignores an inline comment and still reads a step that starts with `with:`. Hygiene keeps image sources, CSS urls, and `*url` assignments, and still ignores a root-relative href, action, or Markdown link. A quoted string fallback in an Actions expression still counts.
 - Workspace publish targets follow the packages npm would publish, including `--workspaces=false`, `--include-workspace-root`, and the job working directory. A shell comment cannot change that target. Object `url` counts only on a request config. Cloudflare Pages stops at the `with` block and ignores a comment in a block command. Hygiene keeps Markdown images, code arguments, and shell variables, and still reads a quoted secret that contains an escaped quote. An empty or secret-reference fallback is not a hardcoded secret.
 - A nested `**` workspace glob and a parent directory selector still count as a public publish. A job-level working directory applies whether it is written before or after `steps`.
+- Workspace globs match a `*` or `?` inside one path segment, and a parent-directory selector is a direct lookup. Both stay inside the scan time limit.
 
 ## 0.1.1
 

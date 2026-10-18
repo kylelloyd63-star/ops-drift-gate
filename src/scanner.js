@@ -275,7 +275,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     checkTime();
   }
   const npmRule = ruleById.get("npm");
-  const packageIndex = indexPackages(packageRegistries);
+  const packageIndex = indexPackages(packageRegistries, checkTime);
   for (let cursor = 0; cursor < deferredNpm.length; cursor++) {
     if ((cursor & 63) === 0) checkTime();
     const hit = deferredNpm[cursor];
