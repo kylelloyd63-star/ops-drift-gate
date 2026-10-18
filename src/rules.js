@@ -659,50 +659,59 @@ function cleanToken(token) {
   return String(token).replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\/$/, "");
 }
 function workspaceMatch(pattern, dir) {
-  const parts = pattern.replace(/^\.\//, "").split("/").filter(Boolean);
-  const dirs = dir.replace(/^\.\//, "").split("/").filter(Boolean);
-  let left = 0;
-  let right = 0;
-  while (left < parts.length && right < dirs.length) {
-    if (parts[left] === "**") {
-      if (left === parts.length - 1) return true;
-      left++;
-      while (right < dirs.length && parts[left] !== "*" && dirs[right] !== parts[left]) right++;
-      continue;
-    }
-    if (parts[left] !== "*" && parts[left] !== dirs[right]) return false;
-    left++;
-    right++;
+  const parts = [];
+  for (const part of pattern.replace(/^\.\//, "").split("/")) {
+    if (!part) continue;
+    if (part === "**" && parts[parts.length - 1] === "**") continue;
+    parts.push(part);
+    if (parts.length > 16) return false;
   }
-  return left === parts.length && right === dirs.length;
+  const dirs = dir.replace(/^\.\//, "").split("/").filter(Boolean);
+  if (dirs.length > 16) return false;
+  const walk = (left, right) => {
+    if (left === parts.length) return right === dirs.length;
+    if (parts[left] === "**") {
+      for (let skip = right; skip <= dirs.length; skip++) if (walk(left + 1, skip)) return true;
+      return false;
+    }
+    if (right >= dirs.length || (parts[left] !== "*" && parts[left] !== dirs[right])) return false;
+    return walk(left + 1, right + 1);
+  };
+  return walk(0, 0);
 }
 export function indexPackages(packages) {
   const byName = new Map();
   const byDir = new Map();
+  const workspaces = [];
   const root = packages.find(pkg => pkg.dir === "");
   const patterns = root?.patterns ?? [];
-  let sawWorkspace = false;
   let workspacesPublic = false;
   for (const pkg of packages) {
     if (pkg.name && !byName.has(pkg.name)) byName.set(pkg.name, pkg);
     if (!byDir.has(pkg.dir)) byDir.set(pkg.dir, pkg);
     if (!pkg.dir || !patterns.some(pattern => workspaceMatch(pattern, pkg.dir))) continue;
-    sawWorkspace = true;
+    workspaces.push(pkg);
     if (pkg.registry !== "private") workspacesPublic = true;
   }
-  return { byName, byDir, sawWorkspace, workspacesPublic, rootPublic: !root || root.registry !== "private" };
+  return { byName, byDir, workspaces, sawWorkspace: workspaces.length > 0, workspacesPublic, rootPublic: !root || root.registry !== "private" };
 }
-function lookupPackage(index, token) {
+function selectorIsPublic(index, token) {
   const cleaned = cleanToken(token);
-  return index.byName.get(cleaned) || index.byDir.get(cleaned) || null;
+  const exact = index.byName.get(cleaned) || index.byDir.get(cleaned);
+  if (exact) return exact.registry !== "private";
+  if (!cleaned) return false;
+  const prefix = cleaned + "/";
+  for (const pkg of index.workspaces) {
+    if ((pkg.dir === cleaned || pkg.dir.startsWith(prefix)) && pkg.registry !== "private") return true;
+  }
+  return false;
 }
 export function barePublishIsPublic(index, command, directory = "", checkTime) {
   const scope = publishScope(stripShellComment(command), checkTime);
   if (scope.names.length) {
     for (let cursor = 0; cursor < scope.names.length; cursor++) {
       if ((cursor & 1023) === 0) checkTime?.();
-      const pkg = lookupPackage(index, scope.names[cursor]);
-      if (pkg && pkg.registry !== "private") return true;
+      if (selectorIsPublic(index, scope.names[cursor])) return true;
     }
     return false;
   }
@@ -755,6 +764,7 @@ export function extraWorkflowHits(text, checkTime) {
   };
   let registryMode = "default";
   let jobDirectory = "";
+  let jobPublishes = [];
   let step = null;
   let inJobs = false;
   let jobsIndent = -1;
@@ -764,8 +774,11 @@ export function extraWorkflowHits(text, checkTime) {
   const flushStep = () => {
     if (!step) return;
     if (step.publishes.length) {
-      const directory = workingDirectory(step.lines) || jobDirectory;
-      for (const hit of step.publishes) hit.directory = directory;
+      const stepDirectory = workingDirectory(step.lines);
+      for (const hit of step.publishes) {
+        if (stepDirectory) hit.directory = stepDirectory;
+        else { hit.directory = jobDirectory; jobPublishes.push(hit); }
+      }
     }
     if (step.wrangler && wranglerPages(step.lines)) hits.push({ id: "cloudflare-pages", index: step.start });
     step = null;
@@ -810,12 +823,14 @@ export function extraWorkflowHits(text, checkTime) {
       jobOpen = false;
       registryMode = "default";
       jobDirectory = "";
+      jobPublishes = [];
     } else if (inJobs && mappingKey(text, offset, end) && indent > jobsIndent && (jobIndent < 0 || indent === jobIndent)) {
       if (jobIndent < 0) jobIndent = indent;
       flushStep();
       jobOpen = true;
       registryMode = "default";
       jobDirectory = "";
+      jobPublishes = [];
     } else {
       if (inJobs && jobIndent >= 0 && indent <= jobsIndent) {
         flushStep();
@@ -823,6 +838,7 @@ export function extraWorkflowHits(text, checkTime) {
         jobOpen = true;
         registryMode = "default";
         jobDirectory = "";
+        jobPublishes = [];
       }
       const marker = listIndent(text, offset, end);
       if (marker >= 0 && (!step || marker <= step.indent)) {
@@ -833,7 +849,10 @@ export function extraWorkflowHits(text, checkTime) {
       else if (step) absorb(text.slice(offset, end));
       else if (inJobs && jobIndent >= 0) {
         const dir = workingDirectory([text.slice(offset, end)]);
-        if (dir) jobDirectory = dir;
+        if (dir) {
+          jobDirectory = dir;
+          for (const hit of jobPublishes) hit.directory = dir;
+        }
       }
       if (jobOpen && lineHasNpm(offset, end)) {
         const line = text.slice(offset, end);

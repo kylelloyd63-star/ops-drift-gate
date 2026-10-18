@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { auditRepository, formatReport, machineReport, parseManifestJson, parseSimpleYaml, scanRepository, validateManifest, writeStarterManifest } from "../src/index.js";
+import * as rules from "../src/rules.js";
 
 const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(repo, "src", "cli.js");
@@ -903,20 +904,44 @@ test("npm publish targets only the workspace npm would publish", () => temp((roo
   assert.equal(provider(scanRepository(root), "npm"), undefined);
 }));
 
-test("deferred npm lookup stays within the time budget", () => temp((root, write) => {
-  const github = "https://npm.pkg.github.com";
-  for (let i = 0; i < 9000; i++) write(`packages/p${i}/package.json`, JSON.stringify({ name: "p" + i, publishConfig: { registry: github } }));
-  const line = "npm publish -w p8999 ";
-  const prefix = "jobs:\n  publish:\n    steps:\n      - run: ";
-  const budget = 1048576 - Buffer.byteLength(prefix) - 1;
-  const width = Buffer.byteLength(line);
-  write(".github/workflows/p.yml", prefix + line.repeat(Math.floor(budget / width)) + "\n");
+test("deferred npm lookup stays within the time budget", () => {
+  const packages = [];
+  for (let i = 0; i < 9000; i++) packages.push({ dir: "packages/p" + i, name: "p" + i, registry: "private", patterns: [] });
+  const target = typeof rules.indexPackages === "function" ? rules.indexPackages(packages) : packages;
+  const command = "npm publish" + " -w p8999".repeat(120000);
   const started = performance.now();
-  const scanned = scanRepository(root);
+  const result = rules.barePublishIsPublic(target, command);
   const elapsed = performance.now() - started;
-  assert.equal(scanned.complete, true, JSON.stringify(scanned.warnings));
-  assert.equal(provider(scanned, "npm"), undefined);
-  assert.ok(elapsed < 3000, `deferred npm took ${elapsed}ms`);
+  assert.equal(result, false);
+  assert.ok(elapsed < 1000, `deferred npm lookup took ${elapsed}ms`);
+});
+
+test("nested workspace globs and parent directories publish public packages", () => temp((root, write) => {
+  write("package.json", JSON.stringify({ name: "root-app", workspaces: ["packages/**/*"] }));
+  write("packages/team/a/package.json", JSON.stringify({ name: "public-a" }));
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write("package.json", JSON.stringify({ name: "root-app", workspaces: ["packages/*"] }));
+  write("packages/a/package.json", JSON.stringify({ name: "public-a" }));
+  fs.unlinkSync(path.join(root, "packages/team/a/package.json"));
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspace packages\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("a job default working directory does not depend on key order", () => temp((root, write) => {
+  const github = "https://npm.pkg.github.com";
+  write("package.json", JSON.stringify({ name: "root-app" }));
+  write("packages/a/package.json", JSON.stringify({ name: "a", publishConfig: { registry: github } }));
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - run: npm publish",
+    "    defaults:",
+    "      run:",
+    "        working-directory: packages/a"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
 }));
 
 test("object url counts only on the request config", () => temp((root, write) => {
