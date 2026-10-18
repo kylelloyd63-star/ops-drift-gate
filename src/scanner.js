@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SERVICE_RULES, structuralMatches } from "./rules.js";
+import { SERVICE_RULES, extraWorkflowHits, isPublicNpmRegistry, structuralMatches } from "./rules.js";
 import { collectHygiene } from "./hygiene.js";
 import { checkGitRepresentation } from "./git-index.js";
 import { LIMITS, checkedPath, fail, isSensitivePath, readBounded, repositoryRoot, safeError, safeText, snapshotGuard } from "./safety.js";
@@ -96,7 +96,7 @@ function* extractEnvNames(text, envTemplate) {
     /\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]/g,
     /\$\{\{\s*(?:secrets|vars)\.([A-Z][A-Z0-9_]*)\s*\}\}/g
   ];
-  if (envTemplate) patterns.push(/^\s*([A-Z][A-Z0-9_]*)\s*=/gm);
+  if (envTemplate) patterns.push(/^[ \t]*([A-Z][A-Z0-9_]*)[ \t]*=/gm);
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) if (match[1] && match.index != null) yield { name: match[1], index: match.index };
 }
 function inspectPackages(rel, text, store) {
@@ -127,7 +127,9 @@ function inspectPackages(rel, text, store) {
     for (const pkg of packages) for (const rule of SERVICE_RULES) if (rule.packagePatterns?.some(re => re.test(pkg))) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package dependency matching ${rule.id}` });
     for (const rule of SERVICE_RULES) for (const marker of rule.packageMarkers ?? []) {
       const value = json[marker];
-      if (value && typeof value === "object" && !Array.isArray(value)) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package.json ${marker}` });
+      if (!(value && typeof value === "object" && !Array.isArray(value))) continue;
+      if (rule.id === "npm" && marker === "publishConfig" && typeof value.registry === "string" && value.registry.trim() && !isPublicNpmRegistry(value.registry)) continue;
+      addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package.json ${marker}` });
     }
 }
 
@@ -147,6 +149,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
   const envVars = new Map();
   const skippedSensitiveFiles = [];
   const hygiene = [];
+  const notes = [];
   const warnings = [];
   let currentPath = ".";
   let scannedFiles = 0, candidateBytes = 0;
@@ -171,18 +174,25 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     if ((!ordinaryText && !(wantHygiene && hygieneExtra)) || (documentation && !wantHygiene)) continue;
 
     if (++scannedFiles > limits.candidates) fail("CANDIDATE_COUNT_LIMIT");
-    const { text, bytes } = readBounded(root, full, limits.fileBytes, limits.totalBytes - candidateBytes, guard);
-    candidateBytes += bytes;
+    const lenient = documentation || hygieneExtra;
+    const decoded = readBounded(root, full, limits.fileBytes, limits.totalBytes - candidateBytes, guard, lenient ? "hygiene" : "strict");
+    candidateBytes += decoded.bytes;
+    if (decoded.skipped) {
+      notes.push({ code: decoded.skipped, path: safeText(normalized) });
+      checkTime();
+      continue;
+    }
+    const { text } = decoded;
     const lineFor = lineLookup(text);
-    const recordHygiene = () => {
+    const recordHygiene = (skipLocalPaths = false) => {
       if (!wantHygiene) return;
       checkTime();
-      for (const item of collectHygiene(text, safeText(normalized), lineFor, checkTime)) {
+      for (const item of collectHygiene(text, safeText(normalized), lineFor, checkTime, { skipLocalPaths })) {
         if (hygiene.length >= limits.evidence) fail("EVIDENCE_COUNT_LIMIT");
         hygiene.push(item);
       }
     };
-    if (LOCKFILES.has(base)) { recordHygiene(); checkTime(); continue; }
+    if (LOCKFILES.has(base)) { recordHygiene(true); checkTime(); continue; }
     inspectPackages(rel, text, services);
     const detectionEligible = !documentation && !hygieneExtra;
     const extractedEnv = detectionEligible ? extractEnvNames(text, envTemplate) : [];
@@ -226,6 +236,10 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
           if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "integration", detail: "operational configuration key", line: lineFor(match.index) });
         }
       }
+      if (workflow) for (const hit of extraWorkflowHits(text, checkTime)) {
+        const rule = ruleById.get(hit.id);
+        if (rule) addEvidence(services, rule, { path: normalized, kind: "workflow", detail: "workflow integration step", line: lineFor(hit.index) });
+      }
       checkTime();
       for (const hit of structuralMatches(text, checkTime)) {
         const rule = ruleById.get(hit.id);
@@ -248,6 +262,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     envVars: [...envVars.values()].sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
     skippedSensitiveFiles: skippedSensitiveFiles.sort(),
     hygiene: hygiene.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line || a.check.localeCompare(b.check) || a.rule.localeCompare(b.rule)),
+    notes: notes.sort((a, b) => a.path.localeCompare(b.path) || a.code.localeCompare(b.code)),
     scannedFiles
   };
 }

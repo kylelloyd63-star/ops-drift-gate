@@ -402,4 +402,135 @@ test("a 1 MiB adversarial file finishes well under a second", () => temp((root, 
   assert.equal(hygiene.complete, true, JSON.stringify(hygiene.warnings));
   assert.deepEqual(hygiene.hygiene, []);
   assert.ok(hygieneElapsed < 1000, `hygiene scan took ${hygieneElapsed}ms`);
+  const closed = (form.repeat(Math.ceil(1048576 / form.length)).slice(0, 1048575)) + ">";
+  write("closed.html", closed);
+  const closedStarted = performance.now();
+  const closedScan = scanRepository(root);
+  const closedElapsed = performance.now() - closedStarted;
+  assert.equal(closedScan.complete, true, JSON.stringify(closedScan.warnings));
+  assert.ok(closedElapsed < 1000, `closed form scan took ${closedElapsed}ms`);
+  write(".github/workflows/newlines.yml", "\n".repeat(1048576));
+  const newlineStarted = performance.now();
+  const newlines = scanRepository(root);
+  const newlineElapsed = performance.now() - newlineStarted;
+  assert.equal(newlines.complete, true, JSON.stringify(newlines.warnings));
+  assert.equal(provider(newlines, "scheduled-jobs"), undefined);
+  assert.ok(newlineElapsed < 1000, `newline workflow scan took ${newlineElapsed}ms`);
+  write(".github/workflows/spaces.yml", " \n".repeat(524288));
+  const spaceStarted = performance.now();
+  const spaces = scanRepository(root);
+  assert.equal(spaces.complete, true, JSON.stringify(spaces.warnings));
+  assert.ok(performance.now() - spaceStarted < 1000, "spaced workflow scan was slow");
+  write(".env.example", "\n".repeat(1048576));
+  const envStarted = performance.now();
+  const envFile = scanRepository(root);
+  assert.equal(envFile.complete, true, JSON.stringify(envFile.warnings));
+  assert.ok(performance.now() - envStarted < 1000, "env template scan was slow");
+  write(".github/workflows/cron.yml", "on:\n  schedule:\n    - cron: '0 0 * * *'\n");
+  assert.ok(provider(scanRepository(root), "scheduled-jobs"));
+}));
+
+test("a private npm registry is not the public npm registry", () => temp((root, write) => {
+  const github = "https://npm.pkg.github.com";
+  write("package.json", JSON.stringify({ name: "example", publishConfig: { registry: github } }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("package.json", JSON.stringify({ name: "example", publishConfig: { access: "public" } }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", `jobs:\n  publish:\n    steps:\n      - run: npm publish --registry ${github}\n`);
+  fs.unlinkSync(path.join(root, "package.json"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --registry " + host(["registry.npmjs", "org"]) + "\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("netlify form tokens count only as form attributes, and JSX arrows do not end the tag", () => temp((root, write) => {
+  write("docs.js", `const docs = ${JSON.stringify("data-" + "netlify" + " enables forms")};\n`);
+  assert.equal(provider(scanRepository(root), "netlify-forms"), undefined);
+  write("index.html", `<form name="contact" ${"data-" + "netlify"}="true"></form>\n`);
+  assert.equal(provider(scanRepository(root), "netlify-forms").confidence, "strong");
+  write("Form.jsx", `<form onSubmit={(e) => track(e)} action="${host(["formspree", "io"])}/f/abc"></form>\n`);
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "strong");
+}));
+
+test("a fetch to a form endpoint is strong and a bare link stays weak", () => temp((root, write) => {
+  write("submit.js", `fetch(${JSON.stringify(host(["api.web3forms", "com"]) + "/submit")}, { method: "POST" });\n`);
+  write("ajax.js", `fetch(\n  ${JSON.stringify(host(["formsubmit", "co"]) + "/ajax/token")}\n);\n`);
+  const called = scanRepository(root);
+  assert.equal(provider(called, "web3forms").confidence, "strong");
+  assert.equal(provider(called, "formsubmit").confidence, "strong");
+  write("submit.js", `const docs = ${JSON.stringify(host(["formspree", "io"]) + "/blog")};\n`);
+  fs.unlinkSync(path.join(root, "ajax.js"));
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
+  assert.equal(provider(scanRepository(root), "web3forms"), undefined);
+}));
+
+test("cloudflare pages deploy does not leak across workflow steps", () => temp((root, write) => {
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: deploy",
+    "      - run: npm run pages deploy"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: pages deploy dist"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages").confidence, "strong");
+}));
+
+test("hygiene flags a hardcoded secret beside an expression and more path shapes", () => temp((root, write) => {
+  const mixed = "actual-hardcoded-value-${{ vars.ENV }}";
+  const only = "${{ secrets.DOCKERHUB_TOKEN }}";
+  const win = ["C:", "Users", "ada"].join("\\");
+  const fwd = ["C:", "Users", "ada"].join("/");
+  const home = ["", "home", "ada"].join("/");
+  const mac = ["", "Users", "ada"].join("/");
+  const tilde = "~" + "/work";
+  const wasm = ["", "home", "web_user"].join("/");
+  write("app.js", [
+    win,
+    `const password = ${JSON.stringify(mixed)};`,
+    `const token = ${JSON.stringify(only)};`,
+    "path=" + fwd,
+    "path=" + home,
+    "dir=" + mac,
+    "home=" + tilde,
+    "wasm=" + wasm
+  ].join("\n"));
+  write("package-lock.json", "path=" + home + "\n");
+  const result = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(result.blocking.filter(item => item.rule === "assigned-secret").length, 1);
+  const paths = result.blocking.filter(item => item.check === "local-path");
+  assert.equal(paths.length, 5);
+  assert.equal(paths.some(item => item.path === "package-lock.json"), false);
+}));
+
+test("hygiene skips non-utf8 docs without failing the scan", () => temp((root, write) => {
+  write("NOTICE.txt", Buffer.from([0xA9, 0x20, 0xE9]));
+  write("settings.ini", Buffer.from("owner=x\n", "utf16le"));
+  write("app.js", "console.log('ok');\n");
+  const quiet = scanRepository(root);
+  assert.equal(quiet.complete, true);
+  assert.deepEqual(quiet.notes, []);
+  const noisy = scanRepository(root, { hygiene: true });
+  assert.equal(noisy.complete, true, JSON.stringify(noisy.warnings));
+  assert.deepEqual(noisy.hygiene, []);
+  assert.deepEqual(noisy.notes.map(item => item.path).sort(), ["NOTICE.txt", "settings.ini"]);
+  const cliRun = spawnSync(process.execPath, [cli, root, "--hygiene", "--ci", "--json"], { encoding: "utf8" });
+  assert.equal(cliRun.status, 0, cliRun.stdout);
+  const report = JSON.parse(cliRun.stdout);
+  assert.equal(report.complete, true);
+  assert.equal(report.status, "pass");
+  write("bad.js", Buffer.from([0xff, 0xfe, 0x00, 0x41]));
+  const strict = scanRepository(root, { hygiene: true });
+  assert.equal(strict.complete, false);
+  assert.equal(strict.warnings[0].code, "INVALID_UTF8");
 }));

@@ -119,7 +119,7 @@ Unknown ordinary fields are errors at the root, service, custody, and ignore lev
 
 Evidence is classified deterministically.
 
-- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an explicit integration signature such as a form action, a script source, a package-registry publish step, or a hosting configuration key.
+- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an explicit integration signature such as a form action, a script source, a `fetch` or HTTP call to a form endpoint, a package-registry publish step, or a hosting configuration key. A publish step or `publishConfig.registry` value that points at a different registry is not the public npm Registry.
 - **corroborated** — multiple non-strong signals agree.
 - **weak** — one content signature only, including a bare hostname.
 
@@ -204,7 +204,7 @@ Exit codes: `0` for a complete scan with enabled policies passing; `1` for path,
 
 Default limits: 100,000 visited entries; 10,000 candidate files; 1 MiB per candidate; 256 MiB total candidate bytes; 64 path components; 20,000 evidence/variable-name records; one million ignore comparisons and 20,000 matched-ignore annotations; 30 seconds of scan traversal; manifest 256 KiB, 10,000 keys, depth 16, text fields 2,048 characters; path input 4,096 characters. Limits cause an explicit incomplete error, never a pass. The scan-time budget is checked between files and between pattern checks inside a file. It is cooperative and cannot preempt a blocking filesystem call or a single pattern match. Node API callers may lower traversal limits but cannot raise them.
 
-Excluded directory names: `.git`, `node_modules`, `dist`, `build`, `.next`, `.cache`, `coverage`, `vendor`, plus test and fixture directories (`test`, `tests`, `__tests__`, `fixtures`) unless inclusion is requested. Sensitive files and documentation are outside the declared detection scope. Links, junctions, hardlinked candidates, relevant unreadable/malformed inputs, invalid UTF-8 and NUL-containing candidates produce errors. Resource bounds count included entries before content reads. Traversal is iterative and streams directory entries.
+Excluded directory names: `.git`, `node_modules`, `dist`, `build`, `.next`, `.cache`, `coverage`, `vendor`, plus test and fixture directories (`test`, `tests`, `__tests__`, `fixtures`) unless inclusion is requested. Sensitive files and documentation are outside the declared detection scope. Links, junctions, hardlinked candidates, relevant unreadable/malformed inputs, and invalid UTF-8 or NUL bytes in a provider candidate produce errors. With `--hygiene`, a documentation or extra config file that is not valid UTF-8 is skipped and noted, and that file does not fail the scan. Resource bounds count included entries before content reads. Traversal is iterative and streams directory entries.
 
 Run on a stable checkout with no concurrent writer. Audit-wide metadata checks include files read earlier and the manifest; Linux also verifies opened descriptors through `/proc/self/fd`. Portable Node APIs are not an atomic sandbox. Active-writer inputs are outside the supported deployment contract. See SECURITY.md and docs/execution-model.md.
 
@@ -225,9 +225,9 @@ Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner*
 
 `--hygiene` is off by default. When enabled, provider candidates are checked, and so are documentation (`.md` and `.txt`, other than `requirements*.txt`) plus `.cfg`, `.ini`, and `.xml` files. Those extra files do not supply provider evidence. The checks look for:
 
-- secret-shaped tokens (cloud access-key prefixes, GitHub and Slack token prefixes, live Stripe secret prefixes, private-key headers, and quoted assignments to common secret names). A GitHub Actions secret or variable expression is not treated as a hardcoded value.
+- secret-shaped tokens (cloud access-key prefixes, GitHub and Slack token prefixes, live Stripe secret prefixes, private-key headers, and quoted assignments to common secret names). A value that is only a GitHub Actions secret or variable expression is not treated as a hardcoded secret. A hardcoded value beside an expression still counts.
 - personal email providers such as Gmail, Outlook, iCloud, Yahoo, AOL, and Proton, only when the domain ends there
-- absolute local paths that start with a Windows drive letter, a Unix home directory, or a macOS user directory. The Emscripten placeholder home directory is ignored.
+- absolute local paths: a Windows drive path with either slash, a Unix or macOS home directory, and a shell home shorthand, including an assignment with no space before the path. The Emscripten placeholder home directory is ignored. Lockfiles are not checked for these paths.
 
 These checks report the rule, repository-relative path, and line number. They do not copy the matched secret, address, or path into text or JSON output. They are not a secrets scanner and do not read files the sensitive-path policy already skips. With `--ci`, hygiene findings are blocking.
 

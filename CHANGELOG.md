@@ -10,6 +10,7 @@
 - Report `confidence` after scoped ignores are applied; retain `activeConfidence` as a deprecated compatibility alias with the same value.
 - Upgrading from 0.1.1 can turn a previous pass into a failure. Form actions, form script sources, hosting files, package-registry publish steps, and custom-domain keys in known hosting configs are blocking evidence. A bare hostname stays informational.
 - Keep hostname, form, email, and registry patterns bounded, and check the scan time limit between pattern checks inside a file.
+- Scheduled-job matching uses horizontal whitespace only. A private `publishConfig.registry` or `npm publish --registry` target is not the public npm Registry. Netlify form attributes count only on a form tag. A fetch to a form endpoint counts as integration evidence. Cloudflare Pages workflow matching stays inside one step. Hygiene skips non-UTF-8 documentation instead of failing the scan, still flags a hardcoded secret next to an Actions expression, and recognizes more absolute-path shapes without reading lockfiles.
 
 ## 0.1.1
 

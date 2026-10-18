@@ -31,6 +31,10 @@ export function formatReport(result) {
   }
 
   lines.push("", `Environment variable names referenced: ${result.scan.envVars.length}`, `Sensitive files skipped without reading contents: ${result.scan.skippedSensitiveFiles.length}`);
+  if (result.scan.notes?.length) {
+    lines.push("", "Non-UTF-8 hygiene files skipped:");
+    for (const note of result.scan.notes) lines.push(`- ${safeText(note.path)} (${note.code})`);
+  }
   if (result.hygieneEnabled) {
     lines.push("", "Hygiene checks: on");
     if (!result.scan.hygiene?.length) lines.push("No hygiene findings.");
@@ -55,6 +59,7 @@ export function machineReport(result) {
     summary: { scanned_files: result.scan.scannedFiles, candidate_bytes: result.scan.candidateBytes, undocumented_count: result.undocumented.length, unknown_custody_count: result.unknownCustody.length, skipped_sensitive_files: result.scan.skippedSensitiveFiles.length, include_tests: Boolean(result.includeTests), hygiene_enabled: Boolean(result.hygieneEnabled), hygiene_count: result.scan.hygiene?.length ?? 0 },
     findings: result.items.map(item => ({ ...item.finding, documented: item.documented, ignored: item.ignored, informational_only: item.informationalOnly, instances: item.instances.map(x => ({ id: x.id, missing_custody: x.custodyUnknowns })) })),
     hygiene: result.scan.hygiene ?? [],
+    notes: result.scan.notes ?? [],
     manifest_only: result.manifestOnly, blocking: result.blocking, warnings: result.scan.warnings
   };
 }
