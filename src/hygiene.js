@@ -24,28 +24,86 @@ function personalEmailPattern() {
 function localPathPatterns() {
   const prefix = "(?:^|[\\s\"'`(:=])";
   const windows = new RegExp(prefix + "[A-Za-z]:[\\\\/]", "g");
-  const homes = "(?:" + "home" + "|" + "Users" + ")";
-  const home = new RegExp(prefix + "/" + homes + "/", "g");
-  const tilde = new RegExp(prefix + "~(?:\\/|[A-Za-z0-9._-]+\\/)", "g");
-  return [windows, home, tilde];
+  const homes = "(?:" + ["home", "Users", "root"].join("|") + ")";
+  const segment = "[^/\\s\"'`\\\\)]";
+  const home = new RegExp(prefix + "/" + homes + "/" + segment, "g");
+  return [windows, home];
 }
 function pathIndex(match) {
   const raw = match[0];
-  if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("/") || raw.startsWith("~")) return match.index;
+  if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("/")) return match.index;
   return match.index + 1;
 }
+function pathChar(text, index) {
+  return index >= 0 && index < text.length ? text[index] : "";
+}
 function acceptedPath(text, index) {
-  const rest = text.slice(index);
-  if (/^[A-Za-z]:[\\/]/.test(rest)) return true;
-  if (/^~(?:\/|[A-Za-z0-9._-]+\/)/.test(rest)) return true;
-  const match = new RegExp("^/(" + "home" + "|" + "Users" + ")/([^/\\s\"'`\\\\)]*)").exec(rest);
-  if (!match) return false;
-  return !(match[1] === "home" && match[2] === "web_user");
+  const drive = pathChar(text, index);
+  const colon = pathChar(text, index + 1);
+  const slash = pathChar(text, index + 2);
+  if (/[A-Za-z]/.test(drive) && colon === ":" && (slash === "\\" || slash === "/")) {
+    let cursor = index + 3;
+    if (slash === "\\" && text[cursor] === "\\") cursor++;
+    let length = 0;
+    while (cursor < text.length) {
+      const ch = text[cursor];
+      if (ch === "\\" || ch === "/" || ch === ")" || ch === "\"" || ch === "'" || ch === "`" || /\s/.test(ch)) break;
+      length++;
+      if (length >= 2) return true;
+      cursor++;
+    }
+    return false;
+  }
+  if (pathChar(text, index) !== "/") return false;
+  let cursor = index + 1;
+  let name = "";
+  while (cursor < text.length && text[cursor] !== "/") {
+    name += text[cursor];
+    if (name.length > 8) return false;
+    cursor++;
+  }
+  if (text[cursor] !== "/") return false;
+  if (name !== "home" && name !== "Users" && name !== "root") return false;
+  cursor++;
+  let segment = "";
+  while (cursor < text.length) {
+    const ch = text[cursor];
+    if (ch === "/" || ch === "\\" || ch === ")" || ch === "\"" || ch === "'" || ch === "`" || /\s/.test(ch)) break;
+    segment += ch;
+    if (segment.length > 64) break;
+    cursor++;
+  }
+  if (!segment) return false;
+  return !(name === "home" && (segment === "web_user" || segment === "runner"));
+}
+function onlyActionsExpressions(value) {
+  let index = 0;
+  while (index < value.length && /\s/.test(value[index])) index++;
+  if (index >= value.length) return false;
+  let nextClose = value.indexOf("}}");
+  while (index < value.length) {
+    if (value.startsWith("${{", index)) {
+      if (nextClose < index) {
+        if (nextClose < 0) return false;
+        nextClose = value.indexOf("}}", index);
+      }
+      if (nextClose < 0 || nextClose - index > 256) return false;
+      const expr = value.slice(index + 3, nextClose);
+      if (!/^\s*(?:secrets|vars)\.[^}]{0,200}\s*$/.test(expr)) return false;
+      index = nextClose + 2;
+      nextClose = value.indexOf("}}", index);
+      while (index < value.length && /\s/.test(value[index])) index++;
+      continue;
+    }
+    if (/\s/.test(value[index])) { index++; continue; }
+    return false;
+  }
+  return true;
 }
 function ignoredSecret(value) {
   if (/^(?:x+|changeme|placeholder|example|redacted|todo|fake|dummy|password|secret)$/i.test(value) || /^your[-_]/i.test(value)) return true;
-  const stripped = value.replace(/\$\{\{\s*(?:secrets|vars)\.[^}]*\}\}/g, "").trim();
-  return stripped.length === 0;
+  if (value.trim().length === 0) return true;
+  return onlyActionsExpressions(value);
 }
 function push(findings, seen, check, rule, path, line) {
   const key = `${check}\0${rule}\0${path}\0${line}`;

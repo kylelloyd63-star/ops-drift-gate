@@ -11,6 +11,7 @@
 - Upgrading from 0.1.1 can turn a previous pass into a failure. Form actions, form script sources, hosting files, package-registry publish steps, and custom-domain keys in known hosting configs are blocking evidence. A bare hostname stays informational.
 - Keep hostname, form, email, and registry patterns bounded, and check the scan time limit between pattern checks inside a file.
 - Scheduled-job matching uses horizontal whitespace only. A private `publishConfig.registry` or `npm publish --registry` target is not the public npm Registry. Netlify form attributes count only on a form tag. A fetch to a form endpoint counts as integration evidence. Cloudflare Pages workflow matching stays inside one step. Hygiene skips non-UTF-8 documentation instead of failing the scan, still flags a hardcoded secret next to an Actions expression, and recognizes more absolute-path shapes without reading lockfiles.
+- Actions expression checks are linear and bounded. A shell tilde is not an absolute path. A form host counts only as a string argument of a call, including a JSX attribute after a braced value. A setup-node `registry-url` for another registry keeps a plain npm publish in that job off the public npm Registry. Cloudflare Pages workflow matching stays inside one step of one job. Hygiene recognizes the root user's home directory and ignores the hosted-runner home directory and a one-character drive segment.
 
 ## 0.1.1
 

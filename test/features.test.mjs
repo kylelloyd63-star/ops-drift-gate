@@ -428,6 +428,18 @@ test("a 1 MiB adversarial file finishes well under a second", () => temp((root, 
   assert.ok(performance.now() - envStarted < 1000, "env template scan was slow");
   write(".github/workflows/cron.yml", "on:\n  schedule:\n    - cron: '0 0 * * *'\n");
   assert.ok(provider(scanRepository(root), "scheduled-jobs"));
+  const piece = "${{ " + "secrets.";
+  const prefix = 'const password = "';
+  const suffix = '"\n';
+  const budget = 1048576 - Buffer.byteLength(prefix) - Buffer.byteLength(suffix);
+  const body = piece.repeat(Math.ceil(budget / piece.length)).slice(0, budget);
+  write("a.js", prefix + body + suffix);
+  const secretStarted = performance.now();
+  const secretScan = scanRepository(root, { hygiene: true });
+  const secretElapsed = performance.now() - secretStarted;
+  assert.equal(secretScan.complete, true, JSON.stringify(secretScan.warnings));
+  assert.equal(secretScan.hygiene.some(item => item.rule === "assigned-secret"), true);
+  assert.ok(secretElapsed < 1000, `unclosed expression scan took ${secretElapsed}ms`);
 }));
 
 test("a private npm registry is not the public npm registry", () => temp((root, write) => {
@@ -441,6 +453,44 @@ test("a private npm registry is not the public npm registry", () => temp((root, 
   assert.equal(provider(scanRepository(root), "npm"), undefined);
   write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --registry " + host(["registry.npmjs", "org"]) + "\n");
   assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          registry-url: " + github,
+    "      - run: npm publish"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("package.json", JSON.stringify({ name: "example", publishConfig: { registry: github } }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  fs.unlinkSync(path.join(root, "package.json"));
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          registry-url: " + host(["registry.npmjs", "org"]),
+    "      - run: npm stage publish --access public"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  private:",
+    "    steps:",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          registry-url: " + github,
+    "      - run: npm publish",
+    "  release:",
+    "    steps:",
+    "      - run: npm publish"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
 }));
 
 test("netlify form tokens count only as form attributes, and JSX arrows do not end the tag", () => temp((root, write) => {
@@ -450,18 +500,31 @@ test("netlify form tokens count only as form attributes, and JSX arrows do not e
   assert.equal(provider(scanRepository(root), "netlify-forms").confidence, "strong");
   write("Form.jsx", `<form onSubmit={(e) => track(e)} action="${host(["formspree", "io"])}/f/abc"></form>\n`);
   assert.equal(provider(scanRepository(root), "formspree").confidence, "strong");
+  fs.unlinkSync(path.join(root, "index.html"));
+  write("Netlify.jsx", `<form onSubmit={(e) => track(e)} ${"data-" + "netlify"}="true"></form>\n`);
+  assert.equal(provider(scanRepository(root), "netlify-forms").confidence, "strong");
 }));
 
 test("a fetch to a form endpoint is strong and a bare link stays weak", () => temp((root, write) => {
   write("submit.js", `fetch(${JSON.stringify(host(["api.web3forms", "com"]) + "/submit")}, { method: "POST" });\n`);
   write("ajax.js", `fetch(\n  ${JSON.stringify(host(["formsubmit", "co"]) + "/ajax/token")}\n);\n`);
+  write("post.js", `axios.post(${JSON.stringify(host(["getform", "io"]) + "/f/1")});\n`);
   const called = scanRepository(root);
   assert.equal(provider(called, "web3forms").confidence, "strong");
   assert.equal(provider(called, "formsubmit").confidence, "strong");
+  assert.equal(provider(called, "getform").confidence, "strong");
   write("submit.js", `const docs = ${JSON.stringify(host(["formspree", "io"]) + "/blog")};\n`);
   fs.unlinkSync(path.join(root, "ajax.js"));
+  fs.unlinkSync(path.join(root, "post.js"));
   assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
   assert.equal(provider(scanRepository(root), "web3forms"), undefined);
+  write("submit.js", `fetch("/health")\nconst docs = ${JSON.stringify(host(["formspree", "io"]) + "/blog")};\n`);
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
+  write("submit.js", `// use fetch( with an endpoint such as ${host(["formsubmit", "co"])}/docs\n`);
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "weak");
+  assert.equal(provider(scanRepository(root), "formspree"), undefined);
+  write("submit.js", `fetch(api, {\n  headers: {},\n  // see ${host(["formspree", "io"])} for alternatives\n});\n`);
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
 }));
 
 test("cloudflare pages deploy does not leak across workflow steps", () => temp((root, write) => {
@@ -484,17 +547,41 @@ test("cloudflare pages deploy does not leak across workflow steps", () => temp((
     "          command: pages deploy dist"
   ].join("\n"));
   assert.equal(provider(scanRepository(root), "cloudflare-pages").confidence, "strong");
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: deploy",
+    "  docs:",
+    "    name: pages deploy documentation"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - run: npx wrangler pages deploy dist"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages").confidence, "strong");
 }));
 
 test("hygiene flags a hardcoded secret beside an expression and more path shapes", () => temp((root, write) => {
   const mixed = "actual-hardcoded-value-${{ vars.ENV }}";
   const only = "${{ secrets.DOCKERHUB_TOKEN }}";
+  const pair = "${{ secrets.A }}${{ vars.B }}";
   const win = ["C:", "Users", "ada"].join("\\");
   const fwd = ["C:", "Users", "ada"].join("/");
   const home = ["", "home", "ada"].join("/");
   const mac = ["", "Users", "ada"].join("/");
   const tilde = "~" + "/work";
+  const store = "~" + "/.pnpm-store";
+  const alias = "~" + "/components/Button.vue";
   const wasm = ["", "home", "web_user"].join("/");
+  const rootHome = ["", "root", "private"].join("/");
+  const runner = ["", "home", "runner", "work"].join("/");
+  const short = ["x:", "y"].join("/");
   write("app.js", [
     win,
     `const password = ${JSON.stringify(mixed)};`,
@@ -503,13 +590,19 @@ test("hygiene flags a hardcoded secret beside an expression and more path shapes
     "path=" + home,
     "dir=" + mac,
     "home=" + tilde,
-    "wasm=" + wasm
+    "wasm=" + wasm,
+    "root=" + rootHome,
+    "ci=" + runner,
+    "short=" + short,
+    "cache=" + store,
+    "import " + alias,
+    `const other = ${JSON.stringify(pair)};`
   ].join("\n"));
   write("package-lock.json", "path=" + home + "\n");
   const result = auditRepository(root, undefined, { hygiene: true });
   assert.equal(result.blocking.filter(item => item.rule === "assigned-secret").length, 1);
   const paths = result.blocking.filter(item => item.check === "local-path");
-  assert.equal(paths.length, 5);
+  assert.deepEqual(paths.map(item => item.line), [1, 4, 5, 6, 9]);
   assert.equal(paths.some(item => item.path === "package-lock.json"), false);
 }));
 

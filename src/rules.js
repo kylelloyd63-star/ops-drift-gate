@@ -132,10 +132,30 @@ function attrNames(lowerTag) {
       if (quote === '"' || quote === "'" || quote === "`") {
         const end = lowerTag.indexOf(quote, index + 1);
         index = end < 0 ? lowerTag.length : end + 1;
-      } else while (index < lowerTag.length && !/[\s>]/.test(lowerTag[index])) index++;
+      } else if (quote === "{") index = skipBraces(lowerTag, index);
+      else while (index < lowerTag.length && !/[\s>]/.test(lowerTag[index])) index++;
     }
   }
   return names;
+}
+function skipBraces(text, open) {
+  let depth = 0;
+  let quote = "";
+  for (let index = open; index < text.length; index++) {
+    const ch = text[index];
+    if (quote) {
+      if (ch === "\\") { index++; continue; }
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return text.length;
 }
 function hostIn(value, name) {
   const lower = value.toLowerCase();
@@ -152,65 +172,301 @@ function hostIn(value, name) {
   return false;
 }
 
-function callBefore(text, at) {
-  const before = text.slice(Math.max(0, at - 240), at);
-  const calls = /(?:\bfetch|\baxios(?:\s*\.\s*(?:post|get|put|request|delete))?|\bsendBeacon|\$\.(?:ajax|post|get))\s*\(/gi;
-  let last = null;
-  for (const match of before.matchAll(calls)) last = match;
-  if (!last || last.index == null) return false;
-  return !before.slice(last.index + last[0].length).includes(";");
-}
-function linesOf(text) {
-  const lines = [];
-  let start = 0;
-  for (let index = 0; index <= text.length; index++) {
-    if (index !== text.length && text[index] !== "\n") continue;
-    lines.push({ start, text: text.slice(start, index) });
-    start = index + 1;
+const ARG_CAP = 800;
+const NPM_PUBLISH = /\bnpm(?:[ \t]+stage)?[ \t]+publish\b/;
+
+function skipString(text, start, limit) {
+  const quote = text[start];
+  let index = start + 1;
+  while (index < limit) {
+    if (text[index] === "\\") { index += 2; continue; }
+    if (text[index] === quote) return index + 1;
+    if (quote === "`" && text[index] === "$" && text[index + 1] === "{") {
+      let depth = 1;
+      index += 2;
+      while (index < limit && depth > 0) {
+        if (text[index] === "{") depth++;
+        else if (text[index] === "}") depth--;
+        index++;
+      }
+      continue;
+    }
+    index++;
   }
-  return lines;
+  return limit;
+}
+function readString(text, start, limit) {
+  const quote = text[start];
+  const chars = [];
+  let index = start + 1;
+  while (index < limit) {
+    const ch = text[index];
+    if (ch === "\\") {
+      if (index + 1 < limit) chars.push(text[index + 1]);
+      index += 2;
+      continue;
+    }
+    if (ch === quote) return { value: chars.join(""), end: index + 1 };
+    if (quote === "`" && ch === "$" && text[index + 1] === "{") {
+      chars.push("$", "{");
+      let depth = 1;
+      index += 2;
+      while (index < limit && depth > 0) {
+        chars.push(text[index]);
+        if (text[index] === "{") depth++;
+        else if (text[index] === "}") depth--;
+        index++;
+      }
+      continue;
+    }
+    chars.push(ch);
+    index++;
+  }
+  return { value: chars.join(""), end: index };
+}
+function argumentStrings(text, openParen) {
+  const limit = Math.min(text.length, openParen + 1 + ARG_CAP);
+  const strings = [];
+  let index = openParen + 1;
+  let depth = 1;
+  while (index < limit && depth > 0) {
+    const ch = text[index];
+    if (ch === "/" && text[index + 1] === "/") {
+      const nl = text.indexOf("\n", index + 2);
+      index = nl < 0 || nl > limit ? limit : nl + 1;
+      continue;
+    }
+    if (ch === "/" && text[index + 1] === "*") {
+      const end = text.indexOf("*/", index + 2);
+      index = end < 0 || end + 2 > limit ? limit : end + 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      const parsed = readString(text, index, limit);
+      if (depth === 1) strings.push(parsed.value);
+      index = parsed.end;
+      continue;
+    }
+    if (ch === "(" || ch === "{" || ch === "[") { depth++; index++; continue; }
+    if (ch === ")" || ch === "}" || ch === "]") { depth--; index++; continue; }
+    index++;
+  }
+  return { strings, end: Math.max(index, openParen + 1) };
+}
+function parenAfter(text, index) {
+  while (index < text.length && (text[index] === " " || text[index] === "\t" || text[index] === "\n" || text[index] === "\r")) index++;
+  return text[index] === "(" ? index : -1;
+}
+function methodParen(text, index, methods) {
+  let cursor = index;
+  while (cursor < text.length && (text[cursor] === " " || text[cursor] === "\t" || text[cursor] === "\n" || text[cursor] === "\r")) cursor++;
+  for (const method of methods) {
+    if (!text.startsWith(method, cursor)) continue;
+    const after = cursor + method.length;
+    if (after < text.length && /[A-Za-z0-9_]/.test(text[after])) return -1;
+    return parenAfter(text, after);
+  }
+  return -1;
+}
+function callOpen(text, index) {
+  const ch = text[index];
+  if (ch !== "f" && ch !== "a" && ch !== "s" && ch !== "$") return -1;
+  const prev = index === 0 ? "" : text[index - 1];
+  if (prev && /[A-Za-z0-9_$]/.test(prev)) return -1;
+  if (ch === "f") return text.startsWith("fetch", index) ? parenAfter(text, index + 5) : -1;
+  if (ch === "s") return text.startsWith("sendBeacon", index) ? parenAfter(text, index + 10) : -1;
+  if (ch === "$") return text.startsWith("$.", index) ? methodParen(text, index + 2, ["ajax", "post", "get"]) : -1;
+  if (!text.startsWith("axios", index)) return -1;
+  const direct = parenAfter(text, index + 5);
+  if (direct >= 0 && text[index + 5] !== ".") return direct;
+  let cursor = index + 5;
+  while (cursor < text.length && (text[cursor] === " " || text[cursor] === "\t" || text[cursor] === "\n" || text[cursor] === "\r")) cursor++;
+  if (text[cursor] !== ".") return -1;
+  return methodParen(text, cursor + 1, ["post", "get", "put", "request", "delete"]);
+}
+function formCallIndexes(text, lower, checkTime) {
+  const rules = SERVICE_RULES.filter(rule => rule.formHosts?.length && rule.formHosts.some(name => lower.includes(name.toLowerCase())));
+  const found = new Map();
+  if (!rules.length) return found;
+  if (!lower.includes("fetch") && !lower.includes("axios") && !lower.includes("sendbeacon") && !text.includes("$.")) return found;
+  let index = 0;
+  let steps = 0;
+  while (index < text.length && found.size < rules.length) {
+    if ((steps++ & 8191) === 0) checkTime?.();
+    const ch = text[index];
+    if (ch === "/" && text[index + 1] === "/") {
+      const nl = text.indexOf("\n", index + 2);
+      index = nl < 0 ? text.length : nl + 1;
+      continue;
+    }
+    if (ch === "/" && text[index + 1] === "*") {
+      const end = text.indexOf("*/", index + 2);
+      index = end < 0 ? text.length : end + 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      index = skipString(text, index, text.length);
+      continue;
+    }
+    const open = callOpen(text, index);
+    if (open >= 0) {
+      const args = argumentStrings(text, open);
+      for (const value of args.strings) {
+        for (const rule of rules) {
+          if (found.has(rule.id)) continue;
+          if (rule.formHosts.some(name => hostIn(value, name))) found.set(rule.id, index);
+        }
+      }
+      index = args.end;
+      continue;
+    }
+    index++;
+  }
+  return found;
+}
+function leadingCount(text, start, end) {
+  let index = start;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  return index - start;
+}
+function blankLine(text, start, end) {
+  let index = start;
+  while (index < end && (text[index] === " " || text[index] === "\t" || text[index] === "\r")) index++;
+  return index === end;
+}
+function commentLine(text, start, end) {
+  let index = start;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  return text[index] === "#";
+}
+function jobsLine(text, start, end) {
+  let index = start;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  if (!text.startsWith("jobs", index)) return false;
+  index += 4;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  return text[index] === ":";
+}
+function mappingKey(text, start, end) {
+  let index = start;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  if (text[index] === "-") return false;
+  const keyStart = index;
+  while (index < end && /[A-Za-z0-9_-]/.test(text[index])) index++;
+  if (index === keyStart) return false;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  return text[index] === ":";
+}
+function listIndent(text, start, end) {
+  let index = start;
+  while (index < end && (text[index] === " " || text[index] === "\t")) index++;
+  if (text[index] !== "-") return -1;
+  const next = text[index + 1];
+  if (next !== " " && next !== "\t") return -1;
+  return index - start;
+}
+function readCommand(text, start, end) {
+  const parts = [text.slice(start, end)];
+  let cursor = end;
+  let extra = 0;
+  while (/\\[ \t]*$/.test(parts[parts.length - 1]) && extra < 4) {
+    if (cursor >= text.length || text[cursor] !== "\n") break;
+    const nextStart = cursor + 1;
+    let nextEnd = text.indexOf("\n", nextStart);
+    if (nextEnd < 0) nextEnd = text.length;
+    parts.push(text.slice(nextStart, nextEnd));
+    cursor = nextEnd;
+    extra++;
+  }
+  return { command: parts.join("\n"), next: cursor < text.length ? cursor + 1 : text.length + 1 };
 }
 export function extraWorkflowHits(text, checkTime) {
   const hits = [];
-  const lower = text.toLowerCase();
-  if (!lower.includes("npm") && !lower.includes("wrangler-action")) return hits;
-  const lines = linesOf(text);
-  let steps = 0;
-  for (let index = 0; index < lines.length; index++) {
-    if ((steps++ & 1023) === 0) checkTime?.();
-    let command = lines[index].text;
-    let end = index;
-    while (/\\[ \t]*$/.test(command) && end + 1 < lines.length && end - index < 4) {
-      end++;
-      command += "\n" + lines[end].text;
+  const probe = text.toLowerCase();
+  if (!probe.includes("npm") && !probe.includes("wrangler-action")) return hits;
+  const registries = [];
+  let bareIndex = -1;
+  let explicitPublicIndex = -1;
+  let step = null;
+  let npmHit = false;
+  let inJobs = false;
+  let jobsIndent = -1;
+  let jobIndent = -1;
+  let jobOpen = true;
+  let counted = 0;
+  const flushStep = () => {
+    if (!step) return;
+    const body = step.lines.join("\n");
+    const lower = body.toLowerCase();
+    if (lower.includes("cloudflare/wrangler-action") && /\bpages[ \t]+deploy\b/i.test(body)) hits.push({ id: "cloudflare-pages", index: step.start });
+    if (lower.includes("actions/setup-node")) {
+      const urls = /registry-url[ \t]*:[ \t]*['"]?([^ \t#'"]+)/gi;
+      let match;
+      while ((match = urls.exec(body))) registries.push(match[1]);
     }
-    if (!/\bnpm(?:[ \t]+stage)?[ \t]+publish\b/.test(command)) continue;
-    const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(command);
-    if (!flag || isPublicNpmRegistry(flag[1])) { hits.push({ id: "npm", index: lines[index].start }); break; }
-  }
-  let stepStart = -1;
-  let stepIndent = Infinity;
-  let stepText = "";
-  const flush = () => {
-    if (stepStart < 0) return;
-    const lower = stepText.toLowerCase();
-    if (lower.includes("cloudflare/wrangler-action") && /\bpages[ \t]+deploy\b/i.test(stepText)) hits.push({ id: "cloudflare-pages", index: stepStart });
+    step = null;
   };
-  for (const line of lines) {
-    const marker = /^([ \t]*)-[ \t]+/.exec(line.text);
-    if (marker) {
-      const indent = marker[1].length;
-      if (stepStart < 0 || indent <= stepIndent) {
-        flush();
-        stepStart = line.start;
-        stepIndent = indent;
-        stepText = line.text;
-        continue;
+  const finishJob = () => {
+    const blocksBare = registries.some(url => !isPublicNpmRegistry(url));
+    if (!npmHit) {
+      if (explicitPublicIndex >= 0) { hits.push({ id: "npm", index: explicitPublicIndex }); npmHit = true; }
+      else if (bareIndex >= 0 && !blocksBare) { hits.push({ id: "npm", index: bareIndex }); npmHit = true; }
+    }
+    registries.length = 0;
+    bareIndex = -1;
+    explicitPublicIndex = -1;
+    jobOpen = false;
+  };
+  let offset = 0;
+  while (offset <= text.length) {
+    if ((counted++ & 8191) === 0) checkTime?.();
+    let end = text.indexOf("\n", offset);
+    if (end < 0) end = text.length;
+    const indent = leadingCount(text, offset, end);
+    if (blankLine(text, offset, end) || commentLine(text, offset, end)) {
+      if (step) step.lines.push(text.slice(offset, end));
+    } else if (jobsLine(text, offset, end)) {
+      flushStep();
+      finishJob();
+      inJobs = true;
+      jobsIndent = indent;
+      jobIndent = -1;
+      jobOpen = false;
+    } else if (inJobs && mappingKey(text, offset, end) && indent > jobsIndent && (jobIndent < 0 || indent === jobIndent)) {
+      if (jobIndent < 0) jobIndent = indent;
+      flushStep();
+      finishJob();
+      jobOpen = true;
+    } else {
+      if (inJobs && jobIndent >= 0 && indent <= jobsIndent) {
+        flushStep();
+        finishJob();
+        inJobs = false;
+        jobOpen = true;
+      }
+      const marker = listIndent(text, offset, end);
+      if (marker >= 0 && (!step || marker <= step.indent)) {
+        flushStep();
+        step = { indent: marker, start: offset, lines: [text.slice(offset, end)] };
+      } else if (step && indent < step.indent) flushStep();
+      else if (step) step.lines.push(text.slice(offset, end));
+      if (jobOpen && text.includes("npm", offset) && text.indexOf("npm", offset) < end) {
+        const command = readCommand(text, offset, end);
+        if (NPM_PUBLISH.test(command.command)) {
+          const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(command.command);
+          if (flag) { if (explicitPublicIndex < 0 && isPublicNpmRegistry(flag[1])) explicitPublicIndex = offset; }
+          else if (bareIndex < 0) bareIndex = offset;
+          offset = command.next;
+          if (end === text.length && command.next > text.length) break;
+          continue;
+        }
       }
     }
-    if (stepStart >= 0) stepText += "\n" + line.text;
+    if (end === text.length) break;
+    offset = end + 1;
   }
-  flush();
+  flushStep();
+  if (jobOpen || bareIndex >= 0 || explicitPublicIndex >= 0 || registries.length) finishJob();
   return hits;
 }
 export function structuralMatches(text, checkTime) {
@@ -222,6 +478,7 @@ export function structuralMatches(text, checkTime) {
     if (attrNames(tag.lower).some(name => netlifyNames.has(name))) { matches.push({ id: "netlify-forms", index: tag.start }); break; }
   }
   const scriptTags = boundedTags(text, lower, "script", checkTime);
+  const called = formCallIndexes(text, lower, checkTime);
   for (const rule of SERVICE_RULES) {
     if (!rule.formHosts?.length) continue;
     let hit = -1;
@@ -233,21 +490,7 @@ export function structuralMatches(text, checkTime) {
       const src = attrValue(tag.tag, tag.lower, "src");
       if (src && rule.formHosts.some(name => hostIn(src, name))) { hit = tag.start; break; }
     }
-    if (hit < 0) {
-      for (const name of rule.formHosts) {
-        const needle = name.toLowerCase();
-        let from = 0;
-        while (from < lower.length) {
-          const at = lower.indexOf(needle, from);
-          if (at < 0) break;
-          const before = at === 0 ? "" : lower[at - 1];
-          const after = lower[at + needle.length] ?? "";
-          if ((!before || before === "." || !/[a-z0-9-]/.test(before)) && (!after || !/[a-z0-9.-]/.test(after)) && callBefore(text, at)) { hit = at; break; }
-          from = at + needle.length;
-        }
-        if (hit >= 0) break;
-      }
-    }
+    if (hit < 0 && called.has(rule.id)) hit = called.get(rule.id);
     if (hit >= 0) matches.push({ id: rule.id, index: hit });
   }
   return matches;
