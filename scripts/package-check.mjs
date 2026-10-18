@@ -35,6 +35,8 @@ try {
   run(process.execPath, [runtime, pnpm ? "add" : "install", "--offline", "--ignore-scripts", ...(pnpm ? [] : ["--no-audit", "--no-fund"]), archive], { cwd: project });
   const installed = path.join(project, "node_modules/ops-drift-gate/src");
   assert.equal(run(process.execPath, [path.join(installed, "cli.js"), "--version"]).trim(), version);
+  fs.writeFileSync(path.join(project, "import-smoke.mjs"), "import { auditRepository } from \"ops-drift-gate\";\nimport { TOOL_VERSION } from \"ops-drift-gate/src/version.js\";\nif (typeof auditRepository !== \"function\" || typeof TOOL_VERSION !== \"string\") throw new Error(\"missing export\");\n");
+  run(process.execPath, ["import-smoke.mjs"], { cwd: project });
   const target = path.join(scratch, "hostile-target"); fs.mkdirSync(target);
   fs.writeFileSync(path.join(target, "package.json"), '{"dependencies":{"resend":"*"},"scripts":{"install":"exit 99"}}');
   const cli = spawnSync(process.execPath, [path.join(installed, "cli.js"), target, "--ci", "--json"], { encoding: "utf8" });

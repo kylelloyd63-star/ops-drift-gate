@@ -75,11 +75,12 @@ test("DET-09 DET-10 unknown provider manifest-only, strict custody still applies
 test("DET-11 no reason or implicit provider-wide ignore rejected",()=>{for(const raw of[template+"ignores:\n  a:\n    provider: resend\n    scope: all\n",template+"ignores:\n  a:\n    provider: resend\n    reason: fixture"])assert.throws(()=>manifest(raw));});
 test("DET-12 scoped ignores retain evidence and cannot cover siblings",()=>fixture((root,write)=>{
  write("test/fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("test/fixtures-sibling/package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  legacy:\n    provider: resend\n    path_prefix: test/fixtures/\n    reason: archived fixture\n");
- const r=auditRepository(root);assert.equal(r.status,"fail");assert.deepEqual(r.undocumented,["resend"]);assert.equal(r.items[0].finding.evidence.filter(x=>x.ignores.length).length,1);fs.unlinkSync(path.join(root,"test/fixtures-sibling/package.json"));const clean=auditRepository(root);assert.equal(clean.status,"pass");assert.equal(clean.items[0].ignored,true);assert.ok(machineReport(clean).findings[0].evidence[0].ignores[0].reason);
+ const r=auditRepository(root,undefined,{includeTests:true});assert.equal(r.status,"fail");assert.deepEqual(r.undocumented,["resend"]);assert.equal(r.items[0].finding.evidence.filter(x=>x.ignores.length).length,1);fs.unlinkSync(path.join(root,"test/fixtures-sibling/package.json"));const clean=auditRepository(root,undefined,{includeTests:true});assert.equal(clean.status,"pass");assert.equal(clean.items[0].ignored,true);assert.ok(machineReport(clean).findings[0].evidence[0].ignores[0].reason);
 }));
 test("DET-12 scoped ignores recalculate reported confidence",()=>fixture((root,write)=>{
  write("fixtures/package.json",'{"dependencies":{"resend":"*"}}');write("app.js",'fetch("https://api.resend.com")');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    path_prefix: fixtures/\n    reason: archived fixture\n");
- const result=auditRepository(root),finding=result.items[0].finding;
+ const result=auditRepository(root,undefined,{includeTests:true}),finding=result.items[0].finding;
+ assert.equal(finding.evidence.some(item=>item.ignores.length),true);
  assert.equal(finding.confidence,"weak");assert.equal(result.items[0].informationalOnly,true);
  assert.equal(finding.activeConfidence,"weak");assert.match(formatReport(result),/\(weak\)/);
  const machineFinding=machineReport(result).findings[0];assert.equal(machineFinding.confidence,"weak");assert.equal(machineFinding.activeConfidence,"weak");
