@@ -10,7 +10,7 @@ const SECRET_RULES = [
   { id: "slack-token", pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/ },
   { id: "stripe-live-key", pattern: /sk_live_[A-Za-z0-9]{16,}/ },
   { id: "private-key", pattern: /-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/ },
-  { id: "assigned-secret", pattern: /(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password)[ \t]*[:=][ \t]*(["'])([^"']{16,})\1/i }
+  { id: "assigned-secret", pattern: /(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password)[ \t]*[:=][ \t]*(?:"([^"]{16,})"|'([^']{16,})')/i }
 ];
 
 function fresh(pattern) {
@@ -75,26 +75,32 @@ function acceptedPath(text, index) {
   }
   if (!segment) return false;
   if (name === "home" && (segment === "web_user" || segment === "runner")) return false;
-  return !webAttributePath(text, index);
+  return !webAttributePath(text, index, name);
 }
-function webAttributePath(text, index) {
+function webAttributePath(text, index, name) {
+  if (name !== "home" && name !== "root") return false;
   let cursor = index - 1;
   if (cursor >= 0 && (text[cursor] === "\"" || text[cursor] === "'" || text[cursor] === "`")) cursor--;
   while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
+  if (cursor >= 0 && text[cursor] === "{") {
+    cursor--;
+    while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
+  }
   if (cursor >= 0 && text[cursor] === "(") {
-    const begin = Math.max(0, cursor - 3);
-    return text.slice(begin, cursor).toLowerCase() === "url";
+    cursor--;
+    while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
+    return text[cursor] === "]";
   }
   if (cursor < 0 || text[cursor] !== "=") return false;
   cursor--;
   while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
-  let name = "";
-  while (cursor >= 0 && /[A-Za-z-]/.test(text[cursor]) && name.length < 24) {
-    name = text[cursor] + name;
+  let attr = "";
+  while (cursor >= 0 && /[A-Za-z-]/.test(text[cursor]) && attr.length < 24) {
+    attr = text[cursor] + attr;
     cursor--;
   }
-  const lower = name.toLowerCase();
-  return lower === "href" || lower === "src" || lower === "action" || lower === "poster" || lower.endsWith("url");
+  const lower = attr.toLowerCase();
+  return lower === "href" || lower === "action";
 }
 function onlyActionsExpressions(value) {
   let index = 0;
@@ -142,7 +148,7 @@ export function collectHygiene(text, path, lineFor, checkTime, options = {}) {
     for (const match of text.matchAll(fresh(rule.pattern))) {
       tick();
       if (match.index == null) continue;
-      if (rule.id === "assigned-secret" && ignoredSecret(match[2] ?? "")) continue;
+      if (rule.id === "assigned-secret" && ignoredSecret(match[1] ?? match[2] ?? "")) continue;
       push(findings, seen, "secret", rule.id, path, lineFor(match.index));
     }
   }

@@ -772,3 +772,98 @@ test("a jsx regex does not hide a netlify form attribute", () => temp((root, wri
   write("Form.jsx", `<form pattern={/}/} ${"data-" + "netlify"}="true"></form>\n`);
   assert.equal(provider(scanRepository(root), "netlify-forms").confidence, "strong");
 }));
+
+test("a private workspace registry does not hide another package publish", () => temp((root, write) => {
+  const github = "https://npm.pkg.github.com";
+  write("package.json", JSON.stringify({ name: "root-app" }));
+  write("packages/private/package.json", JSON.stringify({ name: "internal", publishConfig: { registry: github } }));
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write("package.json", JSON.stringify({ name: "root-app", workspaces: ["packages/*"] }));
+  write("packages/a/package.json", JSON.stringify({ name: "a", publishConfig: { registry: github } }));
+  write("packages/b/package.json", JSON.stringify({ name: "b" }));
+  fs.unlinkSync(path.join(root, "packages/private/package.json"));
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspace packages/a\n");
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish -w packages/b\n");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - working-directory: packages/a",
+    "        run: npm publish"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - run: npm publish",
+    "        working-directory: packages/b"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("a nested url property is not the request endpoint", () => temp((root, write) => {
+  const nested = host(["formspree", "io"]) + "/blog";
+  write("call.js", "fetch(\"/health\", {headers:{url:" + JSON.stringify(nested) + "}});\n");
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
+  write("call.js", "axios({headers:{url:" + JSON.stringify(nested) + "}});\n");
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
+  const endpoint = host(["formspree", "io"]) + "/f/x";
+  write("call.js", "axios({url:" + JSON.stringify(endpoint) + ", headers:{url:" + JSON.stringify(nested) + "}});\n");
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "strong");
+}));
+
+test("an inline workflow comment is not a cloudflare pages command", () => temp((root, write) => {
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: deploy # pages deploy example"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - with:",
+    "          command: pages deploy dist",
+    "        uses: cloudflare/wrangler-action@v3"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages").confidence, "strong");
+}));
+
+test("hygiene keeps local paths that are not web links", () => temp((root, write) => {
+  const shot = ["", "Users", "alice", "Desktop", "shot.png"].join("/");
+  const image = ["", "home", "bob", "img.png"].join("/");
+  const database = ["", "home", "bob", "app.db"].join("/");
+  const project = ["", "Users", "bob", "proj"].join("/");
+  const route = ["", "root", "settings"].join("/");
+  const features = ["", "home", "features"].join("/");
+  write("page.html", `<img src="${shot}">\n<a href="${shot}">desk</a>\n<a href={${JSON.stringify(route)}}>settings</a>\n<a href="${features}">features</a>\n`);
+  write("app.css", `background: url(${image});\n`);
+  write("run.sh", `DATABASE_URL=${database}\n`);
+  write("app.js", `const baseUrl = ${JSON.stringify(project)};\n`);
+  write("README.md", `[settings](${route})\n![shot](${shot})\n`);
+  const result = auditRepository(root, undefined, { hygiene: true });
+  const paths = result.blocking.filter(item => item.check === "local-path");
+  const where = paths.map(item => `${item.path}:${item.line}`).sort();
+  assert.deepEqual(where, ["README.md:2", "app.css:1", "app.js:1", "page.html:1", "page.html:2", "run.sh:1"]);
+}));
+
+test("a quoted actions fallback is still a hardcoded secret", () => temp((root, write) => {
+  const fallback = "${{ secrets.P || 'hunter2realvalue!!' }}";
+  const chain = "${{ secrets.P || vars.TOKEN }}";
+  write("app.js", `const password = ${JSON.stringify(fallback)};\n`);
+  const flagged = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(flagged.blocking.filter(item => item.rule === "assigned-secret").length, 1);
+  write("app.js", `const password = ${JSON.stringify(chain)};\n`);
+  const clean = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(clean.blocking.some(item => item.rule === "assigned-secret"), false);
+}));

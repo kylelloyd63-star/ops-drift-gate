@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SERVICE_RULES, extraWorkflowHits, isPublicNpmRegistry, structuralMatches } from "./rules.js";
+import { SERVICE_RULES, barePublishIsPublic, extraWorkflowHits, isPublicNpmRegistry, structuralMatches } from "./rules.js";
 import { collectHygiene } from "./hygiene.js";
 import { checkGitRepresentation } from "./git-index.js";
 import { LIMITS, checkedPath, fail, isSensitivePath, readBounded, repositoryRoot, safeError, safeText, snapshotGuard } from "./safety.js";
@@ -125,15 +125,23 @@ function inspectPackages(rel, text, store, registries) {
       if (value && typeof value === "object" && !Array.isArray(value)) for (const name of Object.keys(value)) packages.add(name);
     }
     for (const pkg of packages) for (const rule of SERVICE_RULES) if (rule.packagePatterns?.some(re => re.test(pkg))) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package dependency matching ${rule.id}` });
+    registries.push(packageRegistry(rel, json));
     for (const rule of SERVICE_RULES) for (const marker of rule.packageMarkers ?? []) {
       const value = json[marker];
       if (!(value && typeof value === "object" && !Array.isArray(value))) continue;
-      if (rule.id === "npm" && marker === "publishConfig" && typeof value.registry === "string" && value.registry.trim()) {
-        if (isPublicNpmRegistry(value.registry)) registries.public = true;
-        else { registries.private = true; continue; }
-      }
+      if (rule.id === "npm" && marker === "publishConfig" && typeof value.registry === "string" && value.registry.trim() && !isPublicNpmRegistry(value.registry)) continue;
       addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package.json ${marker}` });
     }
+}
+function packageRegistry(rel, json) {
+  const normalized = normalize(rel);
+  const suffix = "/package.json";
+  const dir = normalized.endsWith(suffix) ? normalized.slice(0, -suffix.length) : "";
+  const name = typeof json.name === "string" ? json.name : "";
+  let registry = "default";
+  const publish = json.publishConfig;
+  if (publish && typeof publish === "object" && !Array.isArray(publish) && typeof publish.registry === "string" && publish.registry.trim()) registry = isPublicNpmRegistry(publish.registry) ? "public" : "private";
+  return { dir, name, registry };
 }
 
 export function scanRepository(rootInput, options = {}, sharedGuard) {
@@ -148,7 +156,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
   const checkTime = () => { if (performance.now() - started > limits.milliseconds) fail("SCAN_TIME_LIMIT"); };
   const services = new Map();
   services.seen = new Set(); services.limit = limits.evidence;
-  const packageRegistries = { public: false, private: false };
+  const packageRegistries = [];
   const deferredNpm = [];
   const ruleById = new Map(SERVICE_RULES.map(rule => [rule.id, rule]));
   const envVars = new Map();
@@ -244,7 +252,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
       if (workflow) for (const hit of extraWorkflowHits(text, checkTime)) {
         const rule = ruleById.get(hit.id);
         if (!rule) continue;
-        if (hit.defer) deferredNpm.push({ path: normalized, line: lineFor(hit.index) });
+        if (hit.defer) deferredNpm.push({ path: normalized, line: lineFor(hit.index), command: hit.command, directory: hit.directory || "" });
         else addEvidence(services, rule, { path: normalized, kind: "workflow", detail: "workflow integration step", line: lineFor(hit.index) });
       }
       checkTime();
@@ -256,9 +264,9 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     recordHygiene();
     checkTime();
   }
-  if (!(packageRegistries.private && !packageRegistries.public)) {
-    const npmRule = ruleById.get("npm");
-    for (const hit of deferredNpm) addEvidence(services, npmRule, { path: hit.path, kind: "workflow", detail: "workflow integration step", line: hit.line });
+  const npmRule = ruleById.get("npm");
+  for (const hit of deferredNpm) {
+    if (barePublishIsPublic(packageRegistries, hit.command || "", hit.directory)) addEvidence(services, npmRule, { path: hit.path, kind: "workflow", detail: "workflow integration step", line: hit.line });
   }
   if (!sharedGuard) guard.verify(checkTime);
   } catch (error) { warnings.push({ code: safeError(error), path: safeText(currentPath) }); }

@@ -312,7 +312,7 @@ function argumentStrings(text, openParen) {
     const urlAt = urlKeyAt(text, index, limit);
     if (urlAt >= 0) {
       const parsed = readQuoted(text, urlAt, limit);
-      strings.push(parsed.value);
+      if (depth === 2) strings.push(parsed.value);
       index = parsed.end;
       continue;
     }
@@ -485,6 +485,46 @@ function lineIndent(line) {
   while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
   return index;
 }
+function stepField(line) {
+  let index = 0;
+  while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
+  if (line[index] === "-" && (line[index + 1] === " " || line[index + 1] === "\t")) {
+    index++;
+    while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
+  }
+  if (line[index] === "#") return null;
+  const start = index;
+  while (index < line.length && /[A-Za-z0-9_-]/.test(line[index])) index++;
+  if (index === start) return null;
+  const name = line.slice(start, index);
+  while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
+  if (line[index] !== ":") return null;
+  return { name, indent: start, value: line.slice(index + 1) };
+}
+function yamlScalar(raw) {
+  let index = 0;
+  while (index < raw.length && (raw[index] === " " || raw[index] === "\t")) index++;
+  const quote = raw[index];
+  if (quote === '"' || quote === "'") {
+    const end = raw.indexOf(quote, index + 1);
+    return raw.slice(index + 1, end < 0 ? raw.length : end);
+  }
+  let end = index;
+  while (end < raw.length) {
+    if (raw[end] === "#" && (end === index || /\s/.test(raw[end - 1]))) break;
+    end++;
+  }
+  while (end > index && /\s/.test(raw[end - 1])) end--;
+  return raw.slice(index, end);
+}
+function blockMarker(value) {
+  let index = 0;
+  while (index < value.length && (value[index] === " " || value[index] === "\t")) index++;
+  const start = index;
+  while (index < value.length && value[index] !== " " && value[index] !== "\t" && value[index] !== "#") index++;
+  const token = value.slice(start, index);
+  return token === "|" || token === ">" || token === "|-" || token === ">-" || token === "|+" || token === ">+";
+}
 function wranglerPages(lines) {
   let withIndent = -1;
   let capture = null;
@@ -498,14 +538,104 @@ function wranglerPages(lines) {
         capture = null;
       } else { capture.text += "\n" + line.trim(); continue; }
     }
-    if (/^[ \t]*with[ \t]*:/.test(line)) { withIndent = indent; continue; }
-    const command = /^[ \t]*command[ \t]*:[ \t]*(.*?)\s*$/.exec(line);
-    if (!command || withIndent < 0 || indent <= withIndent) continue;
-    const raw = command[1];
-    if (raw === "|" || raw === ">" || raw === "|-" || raw === ">-" || raw === "|+" || raw === ">+") capture = { indent, text: "" };
-    else if (matched(raw.replace(/^['"]|['"]$/g, ""))) return true;
+    const field = stepField(line);
+    if (!field) continue;
+    if (field.name === "with") { withIndent = field.indent; continue; }
+    if (field.name !== "command" || withIndent < 0 || field.indent <= withIndent) continue;
+    if (blockMarker(field.value)) capture = { indent, text: "" };
+    else if (matched(yamlScalar(field.value))) return true;
   }
   return Boolean(capture && matched(capture.text));
+}
+function boundaryBefore(text, index) {
+  return index === 0 || /\s/.test(text[index - 1]);
+}
+function flagEnd(text, index) {
+  return index >= text.length || /[\s=]/.test(text[index]);
+}
+function readFlagValue(text, index) {
+  while (index < text.length && (text[index] === " " || text[index] === "\t")) index++;
+  if (index >= text.length) return { value: "", next: index };
+  const quote = text[index];
+  if (quote === "'" || quote === '"') {
+    const end = text.indexOf(quote, index + 1);
+    if (end < 0) return { value: text.slice(index + 1), next: text.length };
+    return { value: text.slice(index + 1, end), next: end + 1 };
+  }
+  let end = index;
+  while (end < text.length && !/\s/.test(text[end])) end++;
+  return { value: text.slice(index, end), next: end };
+}
+function publishScope(command) {
+  const names = [];
+  let all = false;
+  let index = 0;
+  while (index < command.length) {
+    if (!boundaryBefore(command, index)) { index++; continue; }
+    if (command.startsWith("--workspaces", index) && flagEnd(command, index + 12)) { all = true; index += 12; continue; }
+    if (command.startsWith("--workspace", index) && flagEnd(command, index + 11)) {
+      index += 11;
+      if (command[index] === "=") index++;
+      const token = readFlagValue(command, index);
+      if (token.value) names.push(token.value);
+      index = token.next;
+      continue;
+    }
+    if (command.startsWith("-ws", index) && flagEnd(command, index + 3)) { all = true; index += 3; continue; }
+    if (command.startsWith("-w", index) && flagEnd(command, index + 2)) {
+      index += 2;
+      if (command[index] === "=") index++;
+      const token = readFlagValue(command, index);
+      if (token.value) names.push(token.value);
+      index = token.next;
+      continue;
+    }
+    index++;
+  }
+  return { all, names };
+}
+function findPackage(packages, token) {
+  const cleaned = String(token).replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\/$/, "");
+  return packages.find(pkg => pkg.name === cleaned || pkg.dir === cleaned) ?? null;
+}
+export function barePublishIsPublic(packages, command, directory = "") {
+  const scope = publishScope(command);
+  if (scope.names.length) return scope.names.some(name => { const pkg = findPackage(packages, name); return !pkg || pkg.registry !== "private"; });
+  if (scope.all) {
+    const workspaces = packages.filter(pkg => pkg.dir);
+    const set = workspaces.length ? workspaces : packages;
+    return set.length === 0 || set.some(pkg => pkg.registry !== "private");
+  }
+  let dir = String(directory || "").replace(/^\.\//, "").replace(/\/$/, "");
+  if (dir === ".") dir = "";
+  const pkg = packages.find(item => item.dir === dir);
+  return !pkg || pkg.registry !== "private";
+}
+function workingDirectory(lines) {
+  for (const line of lines) {
+    let index = 0;
+    while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
+    if (line[index] === "#") continue;
+    if (line[index] === "-" && (line[index + 1] === " " || line[index + 1] === "\t")) {
+      index++;
+      while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
+    }
+    if (!line.startsWith("working-directory", index)) continue;
+    let cursor = index + "working-directory".length;
+    while (cursor < line.length && (line[cursor] === " " || line[cursor] === "\t")) cursor++;
+    if (line[cursor] !== ":") continue;
+    cursor++;
+    while (cursor < line.length && (line[cursor] === " " || line[cursor] === "\t")) cursor++;
+    const quote = line[cursor];
+    if (quote === "'" || quote === '"') {
+      const end = line.indexOf(quote, cursor + 1);
+      return line.slice(cursor + 1, end < 0 ? line.length : end).trim();
+    }
+    let end = cursor;
+    while (end < line.length && line[end] !== " " && line[end] !== "\t" && line[end] !== "#") end++;
+    return line.slice(cursor, end).trim();
+  }
+  return "";
 }
 function registryUrlIn(line) {
   if (/^[ \t]*#/.test(line)) return null;
@@ -531,6 +661,10 @@ export function extraWorkflowHits(text, checkTime) {
   let counted = 0;
   const flushStep = () => {
     if (!step) return;
+    if (step.publishes.length) {
+      const directory = workingDirectory(step.lines);
+      for (const hit of step.publishes) hit.directory = directory;
+    }
     if (step.wrangler && wranglerPages(step.lines)) hits.push({ id: "cloudflare-pages", index: step.start });
     step = null;
   };
@@ -547,14 +681,16 @@ export function extraWorkflowHits(text, checkTime) {
       step.pending.length = 0;
     }
   };
-  const notePublish = (index, explicit) => {
+  const notePublish = (index, explicit, command) => {
     if (explicit) {
       if (isPublicNpmRegistry(explicit)) hits.push({ id: "npm", index });
       return;
     }
     if (registryMode === "private") return;
     if (registryMode === "public") { hits.push({ id: "npm", index }); return; }
-    hits.push({ id: "npm", index, defer: true });
+    const hit = { id: "npm", index, defer: true, command, directory: "" };
+    if (step) step.publishes.push(hit);
+    hits.push(hit);
   };
   let offset = 0;
   while (offset <= text.length) {
@@ -586,7 +722,7 @@ export function extraWorkflowHits(text, checkTime) {
       const marker = listIndent(text, offset, end);
       if (marker >= 0 && (!step || marker <= step.indent)) {
         flushStep();
-        step = { indent: marker, start: offset, lines: [], wrangler: false, setup: false, pending: [] };
+        step = { indent: marker, start: offset, lines: [], wrangler: false, setup: false, pending: [], publishes: [] };
         absorb(text.slice(offset, end));
       } else if (step && indent < step.indent) flushStep();
       else if (step) absorb(text.slice(offset, end));
@@ -596,7 +732,7 @@ export function extraWorkflowHits(text, checkTime) {
           const command = readCommand(text, offset, end);
           if (NPM_PUBLISH.test(command.command)) {
             const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(command.command);
-            notePublish(offset, flag ? flag[1] : null);
+            notePublish(offset, flag ? flag[1] : null, command.command);
             offset = command.next;
             if (end === text.length && command.next > text.length) break;
             continue;
