@@ -288,11 +288,12 @@ function urlKeyAt(text, index, limit) {
   if (quote !== "'" && quote !== '"' && quote !== "`") return -1;
   return cursor;
 }
-function argumentStrings(text, openParen) {
+function argumentStrings(text, openParen, objectUrl) {
   const limit = Math.min(text.length, openParen + 1 + ARG_CAP);
   const strings = [];
   let index = openParen + 1;
   let depth = 1;
+  let arg = 0;
   while (index < limit && depth > 0) {
     const ch = text[index];
     if (ch === "/" && text[index + 1] === "/") {
@@ -309,10 +310,11 @@ function argumentStrings(text, openParen) {
       index = skipRegex(text, index, limit);
       continue;
     }
+    if (ch === "," && depth === 1) { arg++; index++; continue; }
     const urlAt = urlKeyAt(text, index, limit);
     if (urlAt >= 0) {
       const parsed = readQuoted(text, urlAt, limit);
-      if (depth === 2) strings.push(parsed.value);
+      if (objectUrl && arg === 0 && depth === 2) strings.push(parsed.value);
       index = parsed.end;
       continue;
     }
@@ -342,6 +344,22 @@ function methodParen(text, index, methods) {
     return parenAfter(text, after);
   }
   return -1;
+}
+function objectUrlCall(text, index) {
+  if (text.startsWith("axios", index)) {
+    let cursor = index + 5;
+    while (cursor < text.length && (text[cursor] === " " || text[cursor] === "\t" || text[cursor] === "\n" || text[cursor] === "\r")) cursor++;
+    if (text[cursor] !== ".") return true;
+    cursor++;
+    while (cursor < text.length && (text[cursor] === " " || text[cursor] === "\t" || text[cursor] === "\n" || text[cursor] === "\r")) cursor++;
+    return text.startsWith("request", cursor) && !/[A-Za-z0-9_]/.test(text[cursor + 7] || "");
+  }
+  if (text.startsWith("$.", index)) {
+    let cursor = index + 2;
+    while (cursor < text.length && (text[cursor] === " " || text[cursor] === "\t")) cursor++;
+    return text.startsWith("ajax", cursor) && !/[A-Za-z0-9_]/.test(text[cursor + 4] || "");
+  }
+  return false;
 }
 function callOpen(text, index) {
   const ch = text[index];
@@ -389,7 +407,7 @@ function formCallIndexes(text, lower, checkTime) {
     }
     const open = callOpen(text, index);
     if (open >= 0) {
-      const args = argumentStrings(text, open);
+      const args = argumentStrings(text, open, objectUrlCall(text, index));
       for (const value of args.strings) {
         for (const rule of rules) {
           if (found.has(rule.id)) continue;
@@ -536,11 +554,16 @@ function wranglerPages(lines) {
       if (line.trim() && indent <= capture.indent) {
         if (matched(capture.text)) return true;
         capture = null;
-      } else { capture.text += "\n" + line.trim(); continue; }
+      } else {
+        const piece = yamlScalar(line);
+        if (piece) capture.text += "\n" + piece;
+        continue;
+      }
     }
     const field = stepField(line);
     if (!field) continue;
     if (field.name === "with") { withIndent = field.indent; continue; }
+    if (withIndent >= 0 && field.indent <= withIndent) withIndent = -1;
     if (field.name !== "command" || withIndent < 0 || field.indent <= withIndent) continue;
     if (blockMarker(field.value)) capture = { indent, text: "" };
     else if (matched(yamlScalar(field.value))) return true;
@@ -566,13 +589,46 @@ function readFlagValue(text, index) {
   while (end < text.length && !/\s/.test(text[end])) end++;
   return { value: text.slice(index, end), next: end };
 }
-function publishScope(command) {
+function stripShellComment(command) {
+  let quote = "";
+  for (let index = 0; index < command.length; index++) {
+    const ch = command[index];
+    if (quote) {
+      if (ch === "\\") { index++; continue; }
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === "#") return command.slice(0, index);
+  }
+  return command;
+}
+function flagEnabled(command, index) {
+  if (command[index] !== "=") return { enabled: true, next: index };
+  const token = readFlagValue(command, index + 1);
+  return { enabled: token.value !== "false", next: token.next };
+}
+function publishScope(command, checkTime) {
   const names = [];
   let all = false;
+  let includeRoot = false;
   let index = 0;
+  let steps = 0;
   while (index < command.length) {
+    if ((steps++ & 8191) === 0) checkTime?.();
     if (!boundaryBefore(command, index)) { index++; continue; }
-    if (command.startsWith("--workspaces", index) && flagEnd(command, index + 12)) { all = true; index += 12; continue; }
+    if (command.startsWith("--include-workspace-root", index) && flagEnd(command, index + 24)) {
+      const flag = flagEnabled(command, index + 24);
+      if (flag.enabled) includeRoot = true;
+      index = flag.next;
+      continue;
+    }
+    if (command.startsWith("--workspaces", index) && flagEnd(command, index + 12)) {
+      const flag = flagEnabled(command, index + 12);
+      if (flag.enabled) all = true;
+      index = flag.next;
+      continue;
+    }
     if (command.startsWith("--workspace", index) && flagEnd(command, index + 11)) {
       index += 11;
       if (command[index] === "=") index++;
@@ -581,7 +637,12 @@ function publishScope(command) {
       index = token.next;
       continue;
     }
-    if (command.startsWith("-ws", index) && flagEnd(command, index + 3)) { all = true; index += 3; continue; }
+    if (command.startsWith("-ws", index) && flagEnd(command, index + 3)) {
+      const flag = flagEnabled(command, index + 3);
+      if (flag.enabled) all = true;
+      index = flag.next;
+      continue;
+    }
     if (command.startsWith("-w", index) && flagEnd(command, index + 2)) {
       index += 2;
       if (command[index] === "=") index++;
@@ -592,23 +653,63 @@ function publishScope(command) {
     }
     index++;
   }
-  return { all, names };
+  return { all, includeRoot, names };
 }
-function findPackage(packages, token) {
-  const cleaned = String(token).replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\/$/, "");
-  return packages.find(pkg => pkg.name === cleaned || pkg.dir === cleaned) ?? null;
+function cleanToken(token) {
+  return String(token).replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\/$/, "");
 }
-export function barePublishIsPublic(packages, command, directory = "") {
-  const scope = publishScope(command);
-  if (scope.names.length) return scope.names.some(name => { const pkg = findPackage(packages, name); return !pkg || pkg.registry !== "private"; });
-  if (scope.all) {
-    const workspaces = packages.filter(pkg => pkg.dir);
-    const set = workspaces.length ? workspaces : packages;
-    return set.length === 0 || set.some(pkg => pkg.registry !== "private");
+function workspaceMatch(pattern, dir) {
+  const parts = pattern.replace(/^\.\//, "").split("/").filter(Boolean);
+  const dirs = dir.replace(/^\.\//, "").split("/").filter(Boolean);
+  let left = 0;
+  let right = 0;
+  while (left < parts.length && right < dirs.length) {
+    if (parts[left] === "**") {
+      if (left === parts.length - 1) return true;
+      left++;
+      while (right < dirs.length && parts[left] !== "*" && dirs[right] !== parts[left]) right++;
+      continue;
+    }
+    if (parts[left] !== "*" && parts[left] !== dirs[right]) return false;
+    left++;
+    right++;
   }
-  let dir = String(directory || "").replace(/^\.\//, "").replace(/\/$/, "");
+  return left === parts.length && right === dirs.length;
+}
+export function indexPackages(packages) {
+  const byName = new Map();
+  const byDir = new Map();
+  const root = packages.find(pkg => pkg.dir === "");
+  const patterns = root?.patterns ?? [];
+  let sawWorkspace = false;
+  let workspacesPublic = false;
+  for (const pkg of packages) {
+    if (pkg.name && !byName.has(pkg.name)) byName.set(pkg.name, pkg);
+    if (!byDir.has(pkg.dir)) byDir.set(pkg.dir, pkg);
+    if (!pkg.dir || !patterns.some(pattern => workspaceMatch(pattern, pkg.dir))) continue;
+    sawWorkspace = true;
+    if (pkg.registry !== "private") workspacesPublic = true;
+  }
+  return { byName, byDir, sawWorkspace, workspacesPublic, rootPublic: !root || root.registry !== "private" };
+}
+function lookupPackage(index, token) {
+  const cleaned = cleanToken(token);
+  return index.byName.get(cleaned) || index.byDir.get(cleaned) || null;
+}
+export function barePublishIsPublic(index, command, directory = "", checkTime) {
+  const scope = publishScope(stripShellComment(command), checkTime);
+  if (scope.names.length) {
+    for (let cursor = 0; cursor < scope.names.length; cursor++) {
+      if ((cursor & 1023) === 0) checkTime?.();
+      const pkg = lookupPackage(index, scope.names[cursor]);
+      if (pkg && pkg.registry !== "private") return true;
+    }
+    return false;
+  }
+  if (scope.all) return (scope.includeRoot && index.rootPublic) || (index.sawWorkspace && index.workspacesPublic);
+  let dir = cleanToken(directory || "");
   if (dir === ".") dir = "";
-  const pkg = packages.find(item => item.dir === dir);
+  const pkg = index.byDir.get(dir);
   return !pkg || pkg.registry !== "private";
 }
 function workingDirectory(lines) {
@@ -653,6 +754,7 @@ export function extraWorkflowHits(text, checkTime) {
     return npmAt >= start && npmAt < end;
   };
   let registryMode = "default";
+  let jobDirectory = "";
   let step = null;
   let inJobs = false;
   let jobsIndent = -1;
@@ -662,7 +764,7 @@ export function extraWorkflowHits(text, checkTime) {
   const flushStep = () => {
     if (!step) return;
     if (step.publishes.length) {
-      const directory = workingDirectory(step.lines);
+      const directory = workingDirectory(step.lines) || jobDirectory;
       for (const hit of step.publishes) hit.directory = directory;
     }
     if (step.wrangler && wranglerPages(step.lines)) hits.push({ id: "cloudflare-pages", index: step.start });
@@ -707,17 +809,20 @@ export function extraWorkflowHits(text, checkTime) {
       jobIndent = -1;
       jobOpen = false;
       registryMode = "default";
+      jobDirectory = "";
     } else if (inJobs && mappingKey(text, offset, end) && indent > jobsIndent && (jobIndent < 0 || indent === jobIndent)) {
       if (jobIndent < 0) jobIndent = indent;
       flushStep();
       jobOpen = true;
       registryMode = "default";
+      jobDirectory = "";
     } else {
       if (inJobs && jobIndent >= 0 && indent <= jobsIndent) {
         flushStep();
         inJobs = false;
         jobOpen = true;
         registryMode = "default";
+        jobDirectory = "";
       }
       const marker = listIndent(text, offset, end);
       if (marker >= 0 && (!step || marker <= step.indent)) {
@@ -726,13 +831,18 @@ export function extraWorkflowHits(text, checkTime) {
         absorb(text.slice(offset, end));
       } else if (step && indent < step.indent) flushStep();
       else if (step) absorb(text.slice(offset, end));
+      else if (inJobs && jobIndent >= 0) {
+        const dir = workingDirectory([text.slice(offset, end)]);
+        if (dir) jobDirectory = dir;
+      }
       if (jobOpen && lineHasNpm(offset, end)) {
         const line = text.slice(offset, end);
         if (line.includes("publish") || /\\[ \t]*$/.test(line)) {
           const command = readCommand(text, offset, end);
           if (NPM_PUBLISH.test(command.command)) {
-            const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(command.command);
-            notePublish(offset, flag ? flag[1] : null, command.command);
+            const source = stripShellComment(command.command);
+            const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(source);
+            notePublish(offset, flag ? flag[1] : null, source);
             offset = command.next;
             if (end === text.length && command.next > text.length) break;
             continue;

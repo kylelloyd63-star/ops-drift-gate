@@ -867,3 +867,124 @@ test("a quoted actions fallback is still a hardcoded secret", () => temp((root, 
   const clean = auditRepository(root, undefined, { hygiene: true });
   assert.equal(clean.blocking.some(item => item.rule === "assigned-secret"), false);
 }));
+
+test("npm publish targets only the workspace npm would publish", () => temp((root, write) => {
+  const github = "https://npm.pkg.github.com";
+  write("package.json", JSON.stringify({ name: "root-app", workspaces: ["packages/a"] }));
+  write("packages/a/package.json", JSON.stringify({ name: "a", publishConfig: { registry: github } }));
+  write("examples/public/package.json", JSON.stringify({ name: "example-public" }));
+  const workflow = body => write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: " + body + "\n");
+  workflow("npm publish --workspaces=false");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  workflow("npm publish --workspaces --include-workspace-root");
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  workflow("npm publish --workspaces");
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  workflow("npm publish -w nothere");
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    defaults:",
+    "      run:",
+    "        working-directory: packages/a",
+    "    steps:",
+    "      - run: npm publish"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("packages/b/package.json", JSON.stringify({ name: "b" }));
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - working-directory: packages/a",
+    "        run: npm publish # --workspace packages/b"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+}));
+
+test("deferred npm lookup stays within the time budget", () => temp((root, write) => {
+  const github = "https://npm.pkg.github.com";
+  for (let i = 0; i < 9000; i++) write(`packages/p${i}/package.json`, JSON.stringify({ name: "p" + i, publishConfig: { registry: github } }));
+  const line = "npm publish -w p8999 ";
+  const prefix = "jobs:\n  publish:\n    steps:\n      - run: ";
+  const budget = 1048576 - Buffer.byteLength(prefix) - 1;
+  const width = Buffer.byteLength(line);
+  write(".github/workflows/p.yml", prefix + line.repeat(Math.floor(budget / width)) + "\n");
+  const started = performance.now();
+  const scanned = scanRepository(root);
+  const elapsed = performance.now() - started;
+  assert.equal(scanned.complete, true, JSON.stringify(scanned.warnings));
+  assert.equal(provider(scanned, "npm"), undefined);
+  assert.ok(elapsed < 3000, `deferred npm took ${elapsed}ms`);
+}));
+
+test("object url counts only on the request config", () => temp((root, write) => {
+  const formspree = host(["formspree", "io"]) + "/blog";
+  const formsubmit = host(["formsubmit", "co"]) + "/blog";
+  write("call.js", "fetch(\"/health\", {url:" + JSON.stringify(formspree) + "});\n");
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "weak");
+  write("call.js", "axios.post(\"/health\", {url:" + JSON.stringify(formsubmit) + "});\n");
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "weak");
+  assert.equal(provider(scanRepository(root), "formspree"), undefined);
+}));
+
+test("cloudflare pages ignores sibling commands and block comments", () => temp((root, write) => {
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: deploy",
+    "        env:",
+    "          command: pages deploy example"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: |",
+    "            deploy # pages deploy example"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+}));
+
+test("markdown images and code calls are local paths", () => temp((root, write) => {
+  const image = ["", "home", "alice", "Desktop", "shot.png"].join("/");
+  const route = ["", "home", "route"].join("/");
+  const data = ["", "home", "bob", "data"].join("/");
+  write("README.md", `![shot](${image})\n[docs](${route})\n`);
+  write("app.js", `handlers[key](${JSON.stringify(data)});\n`);
+  const result = auditRepository(root, undefined, { hygiene: true });
+  const where = result.blocking.filter(item => item.check === "local-path").map(item => `${item.path}:${item.line}`).sort();
+  assert.deepEqual(where, ["README.md:1", "app.js:1"]);
+}));
+
+test("a shell action variable is a local path", () => temp((root, write) => {
+  const local = ["", "root", "private", "project"].join("/");
+  write("run.sh", `action="${local}"\n`);
+  const result = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(result.blocking.filter(item => item.check === "local-path").length, 1);
+}));
+
+test("an escaped quote does not hide an assigned secret", () => temp((root, write) => {
+  write("app.js", "const password = \"abcd\\\"efghijklmnopqrstuv\";\n");
+  const result = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(result.blocking.filter(item => item.rule === "assigned-secret").length, 1);
+}));
+
+test("an actions expression without a literal secret is ignored", () => temp((root, write) => {
+  const values = [
+    "${{ secrets.X || '' }}",
+    "${{ secrets['NAME'] }}",
+    "${{ secrets[format('{0}_PASSWORD', matrix.env)] }}",
+    "${{ secrets.TOKEN || github.token }}"
+  ];
+  write("app.js", values.map(value => `const password = ${JSON.stringify(value)};`).join("\n") + "\n");
+  const clean = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(clean.blocking.some(item => item.rule === "assigned-secret"), false);
+}));

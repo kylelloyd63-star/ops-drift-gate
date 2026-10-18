@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SERVICE_RULES, barePublishIsPublic, extraWorkflowHits, isPublicNpmRegistry, structuralMatches } from "./rules.js";
+import { SERVICE_RULES, barePublishIsPublic, extraWorkflowHits, indexPackages, isPublicNpmRegistry, structuralMatches } from "./rules.js";
 import { collectHygiene } from "./hygiene.js";
 import { checkGitRepresentation } from "./git-index.js";
 import { LIMITS, checkedPath, fail, isSensitivePath, readBounded, repositoryRoot, safeError, safeText, snapshotGuard } from "./safety.js";
@@ -141,7 +141,17 @@ function packageRegistry(rel, json) {
   let registry = "default";
   const publish = json.publishConfig;
   if (publish && typeof publish === "object" && !Array.isArray(publish) && typeof publish.registry === "string" && publish.registry.trim()) registry = isPublicNpmRegistry(publish.registry) ? "public" : "private";
-  return { dir, name, registry };
+  return { dir, name, registry, patterns: dir === "" ? workspacePatterns(json) : [] };
+}
+function workspacePatterns(json) {
+  const field = json.workspaces;
+  const list = Array.isArray(field) ? field : field && typeof field === "object" && !Array.isArray(field) && Array.isArray(field.packages) ? field.packages : [];
+  const patterns = [];
+  for (const item of list) {
+    if (typeof item === "string" && item.length > 0 && item.length < 256) patterns.push(item);
+    if (patterns.length >= 64) break;
+  }
+  return patterns;
 }
 
 export function scanRepository(rootInput, options = {}, sharedGuard) {
@@ -265,8 +275,11 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     checkTime();
   }
   const npmRule = ruleById.get("npm");
-  for (const hit of deferredNpm) {
-    if (barePublishIsPublic(packageRegistries, hit.command || "", hit.directory)) addEvidence(services, npmRule, { path: hit.path, kind: "workflow", detail: "workflow integration step", line: hit.line });
+  const packageIndex = indexPackages(packageRegistries);
+  for (let cursor = 0; cursor < deferredNpm.length; cursor++) {
+    if ((cursor & 63) === 0) checkTime();
+    const hit = deferredNpm[cursor];
+    if (barePublishIsPublic(packageIndex, hit.command || "", hit.directory, checkTime)) addEvidence(services, npmRule, { path: hit.path, kind: "workflow", detail: "workflow integration step", line: hit.line });
   }
   if (!sharedGuard) guard.verify(checkTime);
   } catch (error) { warnings.push({ code: safeError(error), path: safeText(currentPath) }); }

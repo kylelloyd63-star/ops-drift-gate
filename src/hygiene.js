@@ -10,7 +10,7 @@ const SECRET_RULES = [
   { id: "slack-token", pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/ },
   { id: "stripe-live-key", pattern: /sk_live_[A-Za-z0-9]{16,}/ },
   { id: "private-key", pattern: /-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/ },
-  { id: "assigned-secret", pattern: /(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password)[ \t]*[:=][ \t]*(?:"([^"]{16,})"|'([^']{16,})')/i }
+  { id: "assigned-secret", pattern: /(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password)[ \t]*[:=][ \t]*(?:"((?:\\.|[^"\\]){16,})"|'((?:\\.|[^'\\]){16,})')/i }
 ];
 
 function fresh(pattern) {
@@ -37,7 +37,7 @@ function pathIndex(match) {
 function pathChar(text, index) {
   return index >= 0 && index < text.length ? text[index] : "";
 }
-function acceptedPath(text, index) {
+function acceptedPath(text, index, filePath) {
   const drive = pathChar(text, index);
   const colon = pathChar(text, index + 1);
   const slash = pathChar(text, index + 2);
@@ -75,9 +75,15 @@ function acceptedPath(text, index) {
   }
   if (!segment) return false;
   if (name === "home" && (segment === "web_user" || segment === "runner")) return false;
-  return !webAttributePath(text, index, name);
+  return !webAttributePath(text, index, name, filePath);
 }
-function webAttributePath(text, index, name) {
+function markupPath(filePath) {
+  return /\.(?:html?|jsx|tsx|vue|svelte|md)$/i.test(filePath || "");
+}
+function markdownPath(filePath) {
+  return /\.md$/i.test(filePath || "");
+}
+function webAttributePath(text, index, name, filePath) {
   if (name !== "home" && name !== "root") return false;
   let cursor = index - 1;
   if (cursor >= 0 && (text[cursor] === "\"" || text[cursor] === "'" || text[cursor] === "`")) cursor--;
@@ -87,10 +93,17 @@ function webAttributePath(text, index, name) {
     while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
   }
   if (cursor >= 0 && text[cursor] === "(") {
+    if (!markdownPath(filePath)) return false;
     cursor--;
     while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
-    return text[cursor] === "]";
+    if (text[cursor] !== "]") return false;
+    const floor = Math.max(0, cursor - 256);
+    let start = cursor - 1;
+    while (start >= floor && text[start] !== "[" && text[start] !== "\n") start--;
+    if (text[start] !== "[") return false;
+    return text[start - 1] !== "!";
   }
+  if (!markupPath(filePath)) return false;
   if (cursor < 0 || text[cursor] !== "=") return false;
   cursor--;
   while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
@@ -114,8 +127,7 @@ function onlyActionsExpressions(value) {
         nextClose = value.indexOf("}}", index);
       }
       if (nextClose < 0 || nextClose - index > 256) return false;
-      const expr = value.slice(index + 3, nextClose);
-      if (!/^\s*(?:secrets|vars)\.[A-Za-z0-9_]+(?:\s*\|\|\s*(?:secrets|vars)\.[A-Za-z0-9_]+)*\s*$/.test(expr)) return false;
+      if (expressionHasLiteral(value, index + 3, nextClose)) return false;
       index = nextClose + 2;
       nextClose = value.indexOf("}}", index);
       while (index < value.length && /\s/.test(value[index])) index++;
@@ -125,6 +137,34 @@ function onlyActionsExpressions(value) {
     return false;
   }
   return true;
+}
+function expressionHasLiteral(value, start, end) {
+  let index = start;
+  while (index < end) {
+    const ch = value[index];
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      let literal = "";
+      index++;
+      while (index < end && value[index] !== quote) {
+        if (value[index] === "\\" && index + 1 < end) { literal += value[index + 1]; index += 2; continue; }
+        literal += value[index];
+        index++;
+      }
+      if (literal.length >= 16 && !/^(?:x+|changeme|placeholder|example|redacted|todo|fake|dummy|password|secret)$/i.test(literal) && !/^your[-_]/i.test(literal)) return true;
+      if (index < end && value[index] === quote) index++;
+      continue;
+    }
+    if (ch >= "0" && ch <= "9") {
+      let digits = 0;
+      const origin = index;
+      while (index < end && value[index] >= "0" && value[index] <= "9") { digits++; index++; }
+      if (digits >= 16 && (origin === start || !/[A-Za-z0-9_]/.test(value[origin - 1]))) return true;
+      continue;
+    }
+    index++;
+  }
+  return false;
 }
 function ignoredSecret(value) {
   if (/^(?:x+|changeme|placeholder|example|redacted|todo|fake|dummy|password|secret)$/i.test(value) || /^your[-_]/i.test(value)) return true;
@@ -164,7 +204,7 @@ export function collectHygiene(text, path, lineFor, checkTime, options = {}) {
       tick();
       if (match.index == null) continue;
       const index = pathIndex(match);
-      if (!acceptedPath(text, index)) continue;
+      if (!acceptedPath(text, index, path)) continue;
       push(findings, seen, "local-path", "local-path", path, lineFor(index));
     }
   }
