@@ -953,6 +953,62 @@ test("a segment wildcard workspace glob stays within the time budget", () => {
   });
 });
 
+test("a character class workspace pattern does not hide a public package", () => temp((root, write) => {
+  const workflow = "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n";
+  write(".github/workflows/publish.yml", workflow);
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/app-[ab]"] }));
+  write("packages/other/package.json", JSON.stringify({ name: "other" }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("packages/app-a/package.json", JSON.stringify({ name: "target-class" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("a brace workspace pattern does not hide a public package", () => temp((root, write) => {
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n");
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/{app,lib}-*"] }));
+  write("extras/app-one/package.json", JSON.stringify({ name: "extras-app" }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("packages/app-one/package.json", JSON.stringify({ name: "target-brace" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  fs.unlinkSync(path.join(root, "packages/app-one/package.json"));
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["{extras,packages}/*"] }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("an extglob workspace pattern does not hide a public package", () => temp((root, write) => {
+  const workflow = "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n";
+  write(".github/workflows/publish.yml", workflow);
+  write("extras/app-one/package.json", JSON.stringify({ name: "extras-app" }));
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/@(app|lib)-*"] }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("packages/app-one/package.json", JSON.stringify({ name: "target-extglob" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  fs.unlinkSync(path.join(root, "packages/app-one/package.json"));
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/+(app|lib)"] }));
+  write("packages/lib/package.json", JSON.stringify({ name: "target-plus" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  fs.unlinkSync(path.join(root, "packages/lib/package.json"));
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/!(skip)"] }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("packages/kept/package.json", JSON.stringify({ name: "target-not" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("an excluded workspace pattern does not hide a public package", () => temp((root, write) => {
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish --workspaces\n");
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/*", "!packages/app-a"] }));
+  write("packages/app-a/package.json", JSON.stringify({ name: "target-excluded" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["!packages/app-a"] }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  fs.unlinkSync(path.join(root, "packages/app-a/package.json"));
+  write("package.json", JSON.stringify({ name: "root", workspaces: ["!extras/app-[ab]"] }));
+  write("packages/app-a/package.json", JSON.stringify({ name: "outside" }));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("extras/app-a/package.json", JSON.stringify({ name: "target-negated-class" }));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
 test("nested workspace globs and parent directories publish public packages", () => temp((root, write) => {
   write("package.json", JSON.stringify({ name: "root-app", workspaces: ["packages/**/*"] }));
   write("packages/team/a/package.json", JSON.stringify({ name: "public-a" }));

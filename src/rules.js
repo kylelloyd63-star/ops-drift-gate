@@ -694,6 +694,33 @@ function segmentMatch(pattern, text) {
   while (pi < pattern.length && pattern[pi] === "*") pi++;
   return pi === pattern.length;
 }
+function unsupportedGlob(pattern) {
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === "[" || ch === "]" || ch === "{" || ch === "}") return true;
+    if (pattern[i + 1] === "(" && (ch === "@" || ch === "+" || ch === "!" || ch === "?" || ch === "*")) return true;
+  }
+  return false;
+}
+function literalPrefix(pattern) {
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === "*" || ch === "?" || ch === "[" || ch === "]" || ch === "{" || ch === "}" || (pattern[i + 1] === "(" && (ch === "@" || ch === "+" || ch === "!"))) return pattern.slice(0, i);
+  }
+  return pattern;
+}
+function prefixCovers(prefix, dir) {
+  if (!prefix) return true;
+  if (prefix.endsWith("/")) return dir.startsWith(prefix) || dir === prefix.slice(0, -1);
+  return dir.startsWith(prefix);
+}
+function compileWorkspacePattern(pattern) {
+  let raw = String(pattern).replace(/^\.\//, "");
+  if (raw.startsWith("!") && !raw.startsWith("!(")) raw = raw.slice(1).replace(/^\.\//, "");
+  if (!raw || unsupportedGlob(raw)) return { mode: "prefix", prefix: literalPrefix(raw) };
+  const parts = splitGlob(raw);
+  return parts ? { mode: "glob", parts } : null;
+}
 function matchParts(parts, dir) {
   const dirs = splitGlob(dir);
   if (!dirs) return false;
@@ -721,8 +748,8 @@ export function indexPackages(packages, checkTime) {
   const root = packages.find(pkg => pkg.dir === "");
   const patterns = [];
   for (const pattern of root?.patterns ?? []) {
-    const parts = splitGlob(pattern);
-    if (parts) patterns.push(parts);
+    const compiled = compileWorkspacePattern(pattern);
+    if (compiled) patterns.push(compiled);
   }
   let workspacesPublic = false;
   let steps = 0;
@@ -734,7 +761,8 @@ export function indexPackages(packages, checkTime) {
     let matched = false;
     for (let i = 0; i < patterns.length; i++) {
       if ((steps++ & 63) === 0) checkTime?.();
-      if (matchParts(patterns[i], pkg.dir)) { matched = true; break; }
+      const pattern = patterns[i];
+      if (pattern.mode === "prefix" ? prefixCovers(pattern.prefix, pkg.dir) : matchParts(pattern.parts, pkg.dir)) { matched = true; break; }
     }
     if (!matched) continue;
     workspaces.push(pkg);

@@ -17,6 +17,7 @@
 - Workspace publish targets follow the packages npm would publish, including `--workspaces=false`, `--include-workspace-root`, and the job working directory. A shell comment cannot change that target. Object `url` counts only on a request config. Cloudflare Pages stops at the `with` block and ignores a comment in a block command. Hygiene keeps Markdown images, code arguments, and shell variables, and still reads a quoted secret that contains an escaped quote. An empty or secret-reference fallback is not a hardcoded secret.
 - A nested `**` workspace glob and a parent directory selector still count as a public publish. A job-level working directory applies whether it is written before or after `steps`.
 - Workspace globs match a `*` or `?` inside one path segment, and a parent-directory selector is a direct lookup. Both stay inside the scan time limit.
+- A workspace pattern that uses a character class, brace, extglob, or exclusion stays a possible match under its literal prefix, so that syntax cannot hide a public package.
 
 ## 0.1.1
 
