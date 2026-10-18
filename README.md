@@ -119,7 +119,7 @@ Unknown ordinary fields are errors at the root, service, custody, and ignore lev
 
 Evidence is classified deterministically.
 
-- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an explicit integration signature such as a form action, a script source, a `fetch` or HTTP call whose URL argument is a form endpoint, a package-registry publish step, or a hosting configuration key. A publish command that names another registry, a `publishConfig.registry` value for another registry, or a plain publish in a job whose setup-node `registry-url` points at another registry is not the public npm Registry.
+- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an explicit integration signature such as a form action, a script source, a `fetch` or HTTP call whose URL argument or object `url` is a form endpoint, a package-registry publish step, or a hosting configuration key. A publish command that names another registry, a `publishConfig.registry` value for another registry, or a plain publish while that registry is the one in effect is not the public npm Registry. A later registry setting does not change an earlier publish.
 - **corroborated** — multiple non-strong signals agree.
 - **weak** — one content signature only, including a bare hostname.
 
@@ -225,9 +225,9 @@ Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner*
 
 `--hygiene` is off by default. When enabled, provider candidates are checked, and so are documentation (`.md` and `.txt`, other than `requirements*.txt`) plus `.cfg`, `.ini`, and `.xml` files. Those extra files do not supply provider evidence. The checks look for:
 
-- secret-shaped tokens (cloud access-key prefixes, GitHub and Slack token prefixes, live Stripe secret prefixes, private-key headers, and quoted assignments to common secret names). A value that is only a GitHub Actions secret or variable expression is not treated as a hardcoded secret. A hardcoded value beside an expression still counts.
+- secret-shaped tokens (cloud access-key prefixes, GitHub and Slack token prefixes, live Stripe secret prefixes, private-key headers, and quoted assignments to common secret names). A value that is only a GitHub Actions secret or variable expression is not treated as a hardcoded secret. A literal fallback inside that expression still counts. A hardcoded value beside an expression still counts.
 - personal email providers such as Gmail, Outlook, iCloud, Yahoo, AOL, and Proton, only when the domain ends there
-- absolute local paths: a Windows drive path with either slash when the first folder is at least two characters, a Unix or macOS home directory, and the root user's home directory, including an assignment with no space before the path. The Emscripten placeholder home directory and the GitHub-hosted runner home directory are ignored. A shell tilde is not treated as an absolute path. Lockfiles are not checked for these paths.
+- absolute local paths: a Windows drive path with either slash when the first folder is at least two characters, a Unix or macOS home directory, and the root user's home directory, including an assignment with no space before the path. The Emscripten placeholder home directory and the GitHub-hosted runner home directory are ignored. A shell tilde is not treated as an absolute path, and neither is a root-relative web link. Lockfiles are not checked for these paths.
 
 These checks report the rule, repository-relative path, and line number. They do not copy the matched secret, address, or path into text or JSON output. They are not a secrets scanner and do not read files the sensitive-path policy already skips. With `--ci`, hygiene findings are blocking.
 

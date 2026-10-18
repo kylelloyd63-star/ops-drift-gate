@@ -74,7 +74,27 @@ function acceptedPath(text, index) {
     cursor++;
   }
   if (!segment) return false;
-  return !(name === "home" && (segment === "web_user" || segment === "runner"));
+  if (name === "home" && (segment === "web_user" || segment === "runner")) return false;
+  return !webAttributePath(text, index);
+}
+function webAttributePath(text, index) {
+  let cursor = index - 1;
+  if (cursor >= 0 && (text[cursor] === "\"" || text[cursor] === "'" || text[cursor] === "`")) cursor--;
+  while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
+  if (cursor >= 0 && text[cursor] === "(") {
+    const begin = Math.max(0, cursor - 3);
+    return text.slice(begin, cursor).toLowerCase() === "url";
+  }
+  if (cursor < 0 || text[cursor] !== "=") return false;
+  cursor--;
+  while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
+  let name = "";
+  while (cursor >= 0 && /[A-Za-z-]/.test(text[cursor]) && name.length < 24) {
+    name = text[cursor] + name;
+    cursor--;
+  }
+  const lower = name.toLowerCase();
+  return lower === "href" || lower === "src" || lower === "action" || lower === "poster" || lower.endsWith("url");
 }
 function onlyActionsExpressions(value) {
   let index = 0;
@@ -89,7 +109,7 @@ function onlyActionsExpressions(value) {
       }
       if (nextClose < 0 || nextClose - index > 256) return false;
       const expr = value.slice(index + 3, nextClose);
-      if (!/^\s*(?:secrets|vars)\.[^}]{0,200}\s*$/.test(expr)) return false;
+      if (!/^\s*(?:secrets|vars)\.[A-Za-z0-9_]+(?:\s*\|\|\s*(?:secrets|vars)\.[A-Za-z0-9_]+)*\s*$/.test(expr)) return false;
       index = nextClose + 2;
       nextClose = value.indexOf("}}", index);
       while (index < value.length && /\s/.test(value[index])) index++;

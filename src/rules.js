@@ -138,6 +138,35 @@ function attrNames(lowerTag) {
   }
   return names;
 }
+function regexAllowed(text, index) {
+  let cursor = index - 1;
+  while (cursor >= 0 && (text[cursor] === " " || text[cursor] === "\t")) cursor--;
+  if (cursor < 0) return true;
+  const ch = text[cursor];
+  if (ch === "\n" || ch === "\r" || "([{:;,=!?&|%^~+-<>*".includes(ch)) return true;
+  if (!/[A-Za-z0-9_$]/.test(ch)) return false;
+  let start = cursor;
+  while (start >= 0 && /[A-Za-z0-9_$]/.test(text[start])) start--;
+  return /^(?:return|case|throw|else|typeof|void|delete|await|yield|in|of|new|do)$/.test(text.slice(start + 1, cursor + 1));
+}
+function skipRegex(text, start, limit) {
+  let index = start + 1;
+  let klass = false;
+  while (index < limit) {
+    const ch = text[index];
+    if (ch === "\\") { index += 2; continue; }
+    if (ch === "\n" || ch === "\r") return index;
+    if (ch === "[" && !klass) klass = true;
+    else if (ch === "]" && klass) klass = false;
+    else if (ch === "/" && !klass) {
+      index++;
+      while (index < limit && /[a-z]/i.test(text[index])) index++;
+      return index;
+    }
+    index++;
+  }
+  return index;
+}
 function skipBraces(text, open) {
   let depth = 0;
   let quote = "";
@@ -145,7 +174,22 @@ function skipBraces(text, open) {
     const ch = text[index];
     if (quote) {
       if (ch === "\\") { index++; continue; }
+      if ((quote === "'" || quote === '"') && (ch === "\n" || ch === "\r")) { quote = ""; continue; }
       if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "/" && text[index + 1] === "/") {
+      const nl = text.indexOf("\n", index + 2);
+      index = nl < 0 ? text.length - 1 : nl;
+      continue;
+    }
+    if (ch === "/" && text[index + 1] === "*") {
+      const end = text.indexOf("*/", index + 2);
+      index = end < 0 ? text.length - 1 : end + 1;
+      continue;
+    }
+    if (ch === "/" && regexAllowed(text, index)) {
+      index = skipRegex(text, index, text.length) - 1;
       continue;
     }
     if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
@@ -174,14 +218,17 @@ function hostIn(value, name) {
 
 const ARG_CAP = 800;
 const NPM_PUBLISH = /\bnpm(?:[ \t]+stage)?[ \t]+publish\b/;
+const MARKUP = /\.(?:html?|vue|svelte)$/i;
 
-function skipString(text, start, limit) {
+function skipQuoted(text, start, limit) {
   const quote = text[start];
   let index = start + 1;
   while (index < limit) {
     if (text[index] === "\\") { index += 2; continue; }
-    if (text[index] === quote) return index + 1;
-    if (quote === "`" && text[index] === "$" && text[index + 1] === "{") {
+    const ch = text[index];
+    if ((quote === "'" || quote === '"') && (ch === "\n" || ch === "\r")) return index;
+    if (ch === quote) return index + 1;
+    if (quote === "`" && ch === "$" && text[index + 1] === "{") {
       let depth = 1;
       index += 2;
       while (index < limit && depth > 0) {
@@ -195,7 +242,7 @@ function skipString(text, start, limit) {
   }
   return limit;
 }
-function readString(text, start, limit) {
+function readQuoted(text, start, limit) {
   const quote = text[start];
   const chars = [];
   let index = start + 1;
@@ -206,6 +253,7 @@ function readString(text, start, limit) {
       index += 2;
       continue;
     }
+    if ((quote === "'" || quote === '"') && (ch === "\n" || ch === "\r")) return { value: chars.join(""), end: index };
     if (ch === quote) return { value: chars.join(""), end: index + 1 };
     if (quote === "`" && ch === "$" && text[index + 1] === "{") {
       chars.push("$", "{");
@@ -224,6 +272,22 @@ function readString(text, start, limit) {
   }
   return { value: chars.join(""), end: index };
 }
+function urlKeyAt(text, index, limit) {
+  if (index + 3 > limit) return -1;
+  const word = text.slice(index, index + 3);
+  if (word !== "url" && word !== "URL") return -1;
+  const prev = index === 0 ? "" : text[index - 1];
+  if (prev && /[A-Za-z0-9_$]/.test(prev)) return -1;
+  let cursor = index + 3;
+  if (cursor < limit && /[A-Za-z0-9_$]/.test(text[cursor])) return -1;
+  while (cursor < limit && (text[cursor] === " " || text[cursor] === "\t" || text[cursor] === "\n" || text[cursor] === "\r")) cursor++;
+  if (text[cursor] !== ":") return -1;
+  cursor++;
+  while (cursor < limit && (text[cursor] === " " || text[cursor] === "\t" || text[cursor] === "\n" || text[cursor] === "\r")) cursor++;
+  const quote = text[cursor];
+  if (quote !== "'" && quote !== '"' && quote !== "`") return -1;
+  return cursor;
+}
 function argumentStrings(text, openParen) {
   const limit = Math.min(text.length, openParen + 1 + ARG_CAP);
   const strings = [];
@@ -241,8 +305,19 @@ function argumentStrings(text, openParen) {
       index = end < 0 || end + 2 > limit ? limit : end + 2;
       continue;
     }
+    if (ch === "/" && regexAllowed(text, index)) {
+      index = skipRegex(text, index, limit);
+      continue;
+    }
+    const urlAt = urlKeyAt(text, index, limit);
+    if (urlAt >= 0) {
+      const parsed = readQuoted(text, urlAt, limit);
+      strings.push(parsed.value);
+      index = parsed.end;
+      continue;
+    }
     if (ch === "'" || ch === '"' || ch === "`") {
-      const parsed = readString(text, index, limit);
+      const parsed = readQuoted(text, index, limit);
       if (depth === 1) strings.push(parsed.value);
       index = parsed.end;
       continue;
@@ -304,8 +379,12 @@ function formCallIndexes(text, lower, checkTime) {
       index = end < 0 ? text.length : end + 2;
       continue;
     }
+    if (ch === "/" && regexAllowed(text, index)) {
+      index = skipRegex(text, index, text.length);
+      continue;
+    }
     if (ch === "'" || ch === '"' || ch === "`") {
-      index = skipString(text, index, text.length);
+      index = skipQuoted(text, index, text.length);
       continue;
     }
     const open = callOpen(text, index);
@@ -321,6 +400,27 @@ function formCallIndexes(text, lower, checkTime) {
       continue;
     }
     index++;
+  }
+  return found;
+}
+function formCallIndexesForFile(text, lower, checkTime, filePath) {
+  if (!MARKUP.test(filePath || "")) return formCallIndexes(text, lower, checkTime);
+  const found = new Map();
+  let from = 0;
+  while (from < lower.length) {
+    const start = lower.indexOf("<script", from);
+    if (start < 0) break;
+    const boundary = lower[start + 7];
+    if (boundary && boundary !== ">" && boundary !== "/" && !/\s/.test(boundary)) { from = start + 7; continue; }
+    const open = lower.indexOf(">", start);
+    if (open < 0) break;
+    const close = lower.indexOf("</script", open + 1);
+    const end = close < 0 ? lower.length : close;
+    const slice = text.slice(open + 1, end);
+    const part = formCallIndexes(slice, slice.toLowerCase(), checkTime);
+    for (const [id, index] of part) if (!found.has(id)) found.set(id, open + 1 + index);
+    if (close < 0) break;
+    from = close + 8;
   }
   return found;
 }
@@ -380,15 +480,50 @@ function readCommand(text, start, end) {
   }
   return { command: parts.join("\n"), next: cursor < text.length ? cursor + 1 : text.length + 1 };
 }
+function lineIndent(line) {
+  let index = 0;
+  while (index < line.length && (line[index] === " " || line[index] === "\t")) index++;
+  return index;
+}
+function wranglerPages(lines) {
+  let withIndent = -1;
+  let capture = null;
+  const matched = value => /\bpages[ \t]+deploy\b/i.test(value);
+  for (const line of lines) {
+    if (/^[ \t]*#/.test(line)) continue;
+    const indent = lineIndent(line);
+    if (capture) {
+      if (line.trim() && indent <= capture.indent) {
+        if (matched(capture.text)) return true;
+        capture = null;
+      } else { capture.text += "\n" + line.trim(); continue; }
+    }
+    if (/^[ \t]*with[ \t]*:/.test(line)) { withIndent = indent; continue; }
+    const command = /^[ \t]*command[ \t]*:[ \t]*(.*?)\s*$/.exec(line);
+    if (!command || withIndent < 0 || indent <= withIndent) continue;
+    const raw = command[1];
+    if (raw === "|" || raw === ">" || raw === "|-" || raw === ">-" || raw === "|+" || raw === ">+") capture = { indent, text: "" };
+    else if (matched(raw.replace(/^['"]|['"]$/g, ""))) return true;
+  }
+  return Boolean(capture && matched(capture.text));
+}
+function registryUrlIn(line) {
+  if (/^[ \t]*#/.test(line)) return null;
+  const match = /(?:^|\s)registry-url[ \t]*:[ \t]*['"]?([^ \t#'"]+)/i.exec(line);
+  return match ? match[1] : null;
+}
 export function extraWorkflowHits(text, checkTime) {
   const hits = [];
   const probe = text.toLowerCase();
   if (!probe.includes("npm") && !probe.includes("wrangler-action")) return hits;
-  const registries = [];
-  let bareIndex = -1;
-  let explicitPublicIndex = -1;
+  let npmAt = text.indexOf("npm");
+  const lineHasNpm = (start, end) => {
+    if (npmAt < 0) return false;
+    if (npmAt < start) npmAt = text.indexOf("npm", start);
+    return npmAt >= start && npmAt < end;
+  };
+  let registryMode = "default";
   let step = null;
-  let npmHit = false;
   let inJobs = false;
   let jobsIndent = -1;
   let jobIndent = -1;
@@ -396,26 +531,30 @@ export function extraWorkflowHits(text, checkTime) {
   let counted = 0;
   const flushStep = () => {
     if (!step) return;
-    const body = step.lines.join("\n");
-    const lower = body.toLowerCase();
-    if (lower.includes("cloudflare/wrangler-action") && /\bpages[ \t]+deploy\b/i.test(body)) hits.push({ id: "cloudflare-pages", index: step.start });
-    if (lower.includes("actions/setup-node")) {
-      const urls = /registry-url[ \t]*:[ \t]*['"]?([^ \t#'"]+)/gi;
-      let match;
-      while ((match = urls.exec(body))) registries.push(match[1]);
-    }
+    if (step.wrangler && wranglerPages(step.lines)) hits.push({ id: "cloudflare-pages", index: step.start });
     step = null;
   };
-  const finishJob = () => {
-    const blocksBare = registries.some(url => !isPublicNpmRegistry(url));
-    if (!npmHit) {
-      if (explicitPublicIndex >= 0) { hits.push({ id: "npm", index: explicitPublicIndex }); npmHit = true; }
-      else if (bareIndex >= 0 && !blocksBare) { hits.push({ id: "npm", index: bareIndex }); npmHit = true; }
+  const absorb = line => {
+    if (!step) return;
+    step.lines.push(line);
+    const lower = line.toLowerCase();
+    if (lower.includes("cloudflare/wrangler-action")) step.wrangler = true;
+    if (lower.includes("actions/setup-node")) step.setup = true;
+    const url = registryUrlIn(line);
+    if (url) step.pending.push(url);
+    if (step.setup) {
+      for (const pending of step.pending) registryMode = isPublicNpmRegistry(pending) ? "public" : "private";
+      step.pending.length = 0;
     }
-    registries.length = 0;
-    bareIndex = -1;
-    explicitPublicIndex = -1;
-    jobOpen = false;
+  };
+  const notePublish = (index, explicit) => {
+    if (explicit) {
+      if (isPublicNpmRegistry(explicit)) hits.push({ id: "npm", index });
+      return;
+    }
+    if (registryMode === "private") return;
+    if (registryMode === "public") { hits.push({ id: "npm", index }); return; }
+    hits.push({ id: "npm", index, defer: true });
   };
   let offset = 0;
   while (offset <= text.length) {
@@ -427,38 +566,41 @@ export function extraWorkflowHits(text, checkTime) {
       if (step) step.lines.push(text.slice(offset, end));
     } else if (jobsLine(text, offset, end)) {
       flushStep();
-      finishJob();
       inJobs = true;
       jobsIndent = indent;
       jobIndent = -1;
       jobOpen = false;
+      registryMode = "default";
     } else if (inJobs && mappingKey(text, offset, end) && indent > jobsIndent && (jobIndent < 0 || indent === jobIndent)) {
       if (jobIndent < 0) jobIndent = indent;
       flushStep();
-      finishJob();
       jobOpen = true;
+      registryMode = "default";
     } else {
       if (inJobs && jobIndent >= 0 && indent <= jobsIndent) {
         flushStep();
-        finishJob();
         inJobs = false;
         jobOpen = true;
+        registryMode = "default";
       }
       const marker = listIndent(text, offset, end);
       if (marker >= 0 && (!step || marker <= step.indent)) {
         flushStep();
-        step = { indent: marker, start: offset, lines: [text.slice(offset, end)] };
+        step = { indent: marker, start: offset, lines: [], wrangler: false, setup: false, pending: [] };
+        absorb(text.slice(offset, end));
       } else if (step && indent < step.indent) flushStep();
-      else if (step) step.lines.push(text.slice(offset, end));
-      if (jobOpen && text.includes("npm", offset) && text.indexOf("npm", offset) < end) {
-        const command = readCommand(text, offset, end);
-        if (NPM_PUBLISH.test(command.command)) {
-          const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(command.command);
-          if (flag) { if (explicitPublicIndex < 0 && isPublicNpmRegistry(flag[1])) explicitPublicIndex = offset; }
-          else if (bareIndex < 0) bareIndex = offset;
-          offset = command.next;
-          if (end === text.length && command.next > text.length) break;
-          continue;
+      else if (step) absorb(text.slice(offset, end));
+      if (jobOpen && lineHasNpm(offset, end)) {
+        const line = text.slice(offset, end);
+        if (line.includes("publish") || /\\[ \t]*$/.test(line)) {
+          const command = readCommand(text, offset, end);
+          if (NPM_PUBLISH.test(command.command)) {
+            const flag = /--registry(?:=|[ \t]+)(\S+)/.exec(command.command);
+            notePublish(offset, flag ? flag[1] : null);
+            offset = command.next;
+            if (end === text.length && command.next > text.length) break;
+            continue;
+          }
         }
       }
     }
@@ -466,10 +608,9 @@ export function extraWorkflowHits(text, checkTime) {
     offset = end + 1;
   }
   flushStep();
-  if (jobOpen || bareIndex >= 0 || explicitPublicIndex >= 0 || registries.length) finishJob();
   return hits;
 }
-export function structuralMatches(text, checkTime) {
+export function structuralMatches(text, checkTime, filePath = "") {
   const lower = text.toLowerCase();
   const matches = [];
   const formTags = boundedTags(text, lower, "form", checkTime);
@@ -478,7 +619,7 @@ export function structuralMatches(text, checkTime) {
     if (attrNames(tag.lower).some(name => netlifyNames.has(name))) { matches.push({ id: "netlify-forms", index: tag.start }); break; }
   }
   const scriptTags = boundedTags(text, lower, "script", checkTime);
-  const called = formCallIndexes(text, lower, checkTime);
+  const called = formCallIndexesForFile(text, lower, checkTime, filePath);
   for (const rule of SERVICE_RULES) {
     if (!rule.formHosts?.length) continue;
     let hit = -1;

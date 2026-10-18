@@ -627,3 +627,148 @@ test("hygiene skips non-utf8 docs without failing the scan", () => temp((root, w
   assert.equal(strict.complete, false);
   assert.equal(strict.warnings[0].code, "INVALID_UTF8");
 }));
+
+test("a 1 MiB workflow of short lines stays within the time budget", () => temp((root, write) => {
+  const letters = "n\n".repeat(523998) + "npm";
+  write(".github/workflows/d.yml", letters);
+  const started = performance.now();
+  const scanned = scanRepository(root);
+  const elapsed = performance.now() - started;
+  assert.equal(scanned.complete, true, JSON.stringify(scanned.warnings));
+  assert.equal(provider(scanned, "github-actions").confidence, "strong");
+  assert.ok(elapsed < 200, `short-line workflow took ${elapsed}ms`);
+  const step = "  - uses: cloudflare/wrangler-action\n";
+  write(".github/workflows/d.yml", step.repeat(Math.floor(1048576 / Buffer.byteLength(step))));
+  const wranglerStarted = performance.now();
+  const wrangler = scanRepository(root);
+  const wranglerElapsed = performance.now() - wranglerStarted;
+  assert.equal(wrangler.complete, true, JSON.stringify(wrangler.warnings));
+  assert.equal(provider(wrangler, "cloudflare-pages"), undefined);
+  assert.ok(wranglerElapsed < 200, `wrangler steps took ${wranglerElapsed}ms`);
+}));
+
+test("html prose apostrophes do not hide a script fetch", () => temp((root, write) => {
+  const endpoint = host(["formsubmit", "co"]) + "/ajax/x";
+  write("index.html", `<p>We'll reply soon.</p>\n<script>fetch('${endpoint}',{method:'POST'})</script>\n`);
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "strong");
+  const cliRun = spawnSync(process.execPath, [cli, root, "--ci", "--json"], { encoding: "utf8" });
+  assert.equal(cliRun.status, 2, cliRun.stdout);
+  const report = JSON.parse(cliRun.stdout);
+  assert.equal(report.findings.find(item => item.id === "formsubmit").confidence, "strong");
+  write("loose.html", `<p>fetch('${endpoint}')</p>\n`);
+  fs.unlinkSync(path.join(root, "index.html"));
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "weak");
+  write("App.vue", `<p>We'll reply soon.</p>\n<script>fetch('${endpoint}')</script>\n`);
+  fs.unlinkSync(path.join(root, "loose.html"));
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "strong");
+  write("Page.svelte", `<p>fetch('${endpoint}')</p>\n<script>fetch('${endpoint}')</script>\n`);
+  fs.unlinkSync(path.join(root, "App.vue"));
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "strong");
+}));
+
+test("a regex literal does not hide a form fetch", () => temp((root, write) => {
+  write("re.js", "const re = /'/;\nfetch(" + JSON.stringify(host(["formsubmit", "co"]) + "/ajax/x") + ");\n");
+  assert.equal(provider(scanRepository(root), "formsubmit").confidence, "strong");
+  write("re.js", "const re = /\"/g;\nfetch(" + JSON.stringify(host(["formspree", "io"]) + "/f/abc") + ");\n");
+  assert.equal(provider(scanRepository(root), "formspree").confidence, "strong");
+  assert.equal(provider(scanRepository(root), "formsubmit"), undefined);
+}));
+
+test("package registry and publish order decide public npm", () => temp((root, write) => {
+  const github = "https://npm.pkg.github.com";
+  write("package.json", JSON.stringify({ name: "example", publishConfig: { registry: github } }));
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - run: npm publish\n");
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  fs.unlinkSync(path.join(root, "package.json"));
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - run: npm publish",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          registry-url: " + github
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          registry-url: " + github,
+    "      - run: npm publish"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm"), undefined);
+  write("package.json", JSON.stringify({ name: "example", publishConfig: { registry: github } }));
+  write(".github/workflows/publish.yml", [
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          registry-url: " + host(["registry.npmjs", "org"]),
+    "      - run: npm publish"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "npm").confidence, "strong");
+}));
+
+test("object form http calls to a form host are strong", () => temp((root, write) => {
+  write("axios.js", "axios({url:" + JSON.stringify(host(["formspree", "io"]) + "/f/x") + "});\n");
+  write("request.js", "axios.request({ url: " + JSON.stringify(host(["getform", "io"]) + "/f/x") + " });\n");
+  write("ajax.js", "$.ajax({url:" + JSON.stringify(host(["formsubmit", "co"]) + "/ajax/x") + "});\n");
+  const found = scanRepository(root);
+  assert.equal(provider(found, "formspree").confidence, "strong");
+  assert.equal(provider(found, "getform").confidence, "strong");
+  assert.equal(provider(found, "formsubmit").confidence, "strong");
+}));
+
+test("cloudflare pages uses the command value not comments or step names", () => temp((root, write) => {
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - name: pages deploy documentation",
+    "        uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: deploy",
+    "          # pages deploy example"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: |",
+    "            pages deploy dist"
+  ].join("\n"));
+  assert.equal(provider(scanRepository(root), "cloudflare-pages").confidence, "strong");
+}));
+
+test("an actions fallback literal is still a hardcoded secret", () => temp((root, write) => {
+  const fallback = "${{ secrets.X || 1234567890123456 }}";
+  const chain = "${{ secrets.X || vars.Y }}";
+  write("app.js", `const password = ${JSON.stringify(fallback)};\n`);
+  const flagged = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(flagged.blocking.filter(item => item.rule === "assigned-secret").length, 1);
+  write("app.js", `const password = ${JSON.stringify(chain)};\n`);
+  const clean = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(clean.blocking.some(item => item.rule === "assigned-secret"), false);
+}));
+
+test("a root-relative web link is not a local path", () => temp((root, write) => {
+  const link = ["", "root", "settings"].join("/");
+  const local = ["", "root", "private", "project"].join("/");
+  write("index.html", `<a href="${link}">settings</a>\nconst p=${JSON.stringify(local)};\n`);
+  const result = auditRepository(root, undefined, { hygiene: true });
+  const paths = result.blocking.filter(item => item.check === "local-path");
+  assert.equal(paths.length, 1);
+  assert.equal(paths[0].line, 2);
+}));
+
+test("a jsx regex does not hide a netlify form attribute", () => temp((root, write) => {
+  write("Form.jsx", `<form pattern={/}/} ${"data-" + "netlify"}="true"></form>\n`);
+  assert.equal(provider(scanRepository(root), "netlify-forms").confidence, "strong");
+}));

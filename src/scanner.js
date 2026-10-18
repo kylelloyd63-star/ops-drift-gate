@@ -14,7 +14,7 @@ const LOCKFILES = new Set(["package-lock.json", "npm-shrinkwrap.json", "yarn.loc
 const ENV_TEMPLATES = new Set([".env.example", ".env.sample", ".env.template"]);
 const TEXT_EXTENSIONS = new Set([
   ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json", ".jsonc", ".yaml", ".yml", ".toml",
-  ".py", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".sh", ".bash", ".zsh", ".md", ".txt", ".html", ".css"
+  ".py", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".sh", ".bash", ".zsh", ".md", ".txt", ".html", ".htm", ".vue", ".svelte", ".css"
 ]);
 
 function normalize(p) { return p.split(path.sep).join("/"); }
@@ -99,7 +99,7 @@ function* extractEnvNames(text, envTemplate) {
   if (envTemplate) patterns.push(/^[ \t]*([A-Z][A-Z0-9_]*)[ \t]*=/gm);
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) if (match[1] && match.index != null) yield { name: match[1], index: match.index };
 }
-function inspectPackages(rel, text, store) {
+function inspectPackages(rel, text, store, registries) {
   const base = path.basename(rel).toLowerCase();
   if (/^requirements(?:-[^.]+)?\.txt$/.test(base)) {
     const packages = new Set();
@@ -128,7 +128,10 @@ function inspectPackages(rel, text, store) {
     for (const rule of SERVICE_RULES) for (const marker of rule.packageMarkers ?? []) {
       const value = json[marker];
       if (!(value && typeof value === "object" && !Array.isArray(value))) continue;
-      if (rule.id === "npm" && marker === "publishConfig" && typeof value.registry === "string" && value.registry.trim() && !isPublicNpmRegistry(value.registry)) continue;
+      if (rule.id === "npm" && marker === "publishConfig" && typeof value.registry === "string" && value.registry.trim()) {
+        if (isPublicNpmRegistry(value.registry)) registries.public = true;
+        else { registries.private = true; continue; }
+      }
       addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package.json ${marker}` });
     }
 }
@@ -145,6 +148,8 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
   const checkTime = () => { if (performance.now() - started > limits.milliseconds) fail("SCAN_TIME_LIMIT"); };
   const services = new Map();
   services.seen = new Set(); services.limit = limits.evidence;
+  const packageRegistries = { public: false, private: false };
+  const deferredNpm = [];
   const ruleById = new Map(SERVICE_RULES.map(rule => [rule.id, rule]));
   const envVars = new Map();
   const skippedSensitiveFiles = [];
@@ -193,7 +198,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
       }
     };
     if (LOCKFILES.has(base)) { recordHygiene(true); checkTime(); continue; }
-    inspectPackages(rel, text, services);
+    inspectPackages(rel, text, services, packageRegistries);
     const detectionEligible = !documentation && !hygieneExtra;
     const extractedEnv = detectionEligible ? extractEnvNames(text, envTemplate) : [];
     let matches = 0;
@@ -238,16 +243,22 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
       }
       if (workflow) for (const hit of extraWorkflowHits(text, checkTime)) {
         const rule = ruleById.get(hit.id);
-        if (rule) addEvidence(services, rule, { path: normalized, kind: "workflow", detail: "workflow integration step", line: lineFor(hit.index) });
+        if (!rule) continue;
+        if (hit.defer) deferredNpm.push({ path: normalized, line: lineFor(hit.index) });
+        else addEvidence(services, rule, { path: normalized, kind: "workflow", detail: "workflow integration step", line: lineFor(hit.index) });
       }
       checkTime();
-      for (const hit of structuralMatches(text, checkTime)) {
+      for (const hit of structuralMatches(text, checkTime, normalized)) {
         const rule = ruleById.get(hit.id);
         if (rule) addEvidence(services, rule, { path: normalized, kind: "integration", detail: "provider integration signature", line: lineFor(hit.index) });
       }
     }
     recordHygiene();
     checkTime();
+  }
+  if (!(packageRegistries.private && !packageRegistries.public)) {
+    const npmRule = ruleById.get("npm");
+    for (const hit of deferredNpm) addEvidence(services, npmRule, { path: hit.path, kind: "workflow", detail: "workflow integration step", line: hit.line });
   }
   if (!sharedGuard) guard.verify(checkTime);
   } catch (error) { warnings.push({ code: safeError(error), path: safeText(currentPath) }); }
