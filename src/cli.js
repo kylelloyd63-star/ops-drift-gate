@@ -56,6 +56,12 @@ function parseInitArgs(argv) {
   return { command: "init", root, includeTests };
 }
 
+function writtenPath(root) {
+  const normalized = String(root).replaceAll("\\", "/").replace(/\/+$/, "");
+  if (normalized === "" || normalized === ".") return "ops.yaml";
+  return `${normalized}/ops.yaml`;
+}
+
 function initError(error) {
   if (error instanceof SafetyError && error.code === "MANIFEST_ALREADY_EXISTS") return "a custody manifest already exists; init will not overwrite it";
   return safeError(error);
@@ -69,7 +75,7 @@ try {
     try {
       const written = writeStarterManifest(args.root, { includeTests: args.includeTests });
       const listed = written.providers.length ? `: ${written.providers.join(", ")}` : "";
-      console.log(`Wrote ${written.path} with ${written.providers.length} service(s)${listed}.`);
+      console.log(`Wrote ${writtenPath(args.root)} with ${written.providers.length} service(s)${listed}.`);
       if (written.weak.length) console.log(`Informational signals were not added: ${written.weak.join(", ")}.`);
       console.log("Fill in owner, billing owner, transferability, and recovery procedure.");
     } catch (error) {

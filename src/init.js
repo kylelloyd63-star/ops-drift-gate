@@ -6,10 +6,12 @@ import { fail, repositoryRoot, snapshotGuard } from "./safety.js";
 
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
-function render(providers, weak) {
+function render(providers, weak, includeTests) {
   const lines = ["# Test and fixture paths are skipped unless scan.include_tests is true."];
   if (weak.length) lines.push(`# Informational signals were not added: ${weak.join(", ")}`);
-  lines.push("version: 1", "services:");
+  lines.push("version: 1");
+  if (includeTests) lines.push("scan:", "  include_tests: true");
+  lines.push("services:");
   for (const service of providers) {
     lines.push(
       `  ${service.id}:`,
@@ -37,7 +39,7 @@ export function writeStarterManifest(rootInput, options = {}) {
     .sort((a, b) => a.id.localeCompare(b.id));
   for (const service of providers) if (!ID.test(service.id)) fail("INVALID_MANIFEST_KEY");
   const weak = scan.services.filter(service => service.confidence === "weak").map(service => service.id).sort();
-  const text = render(providers, weak);
+  const text = render(providers, weak, options.includeTests === true);
   validateManifest(parseSimpleYaml(text));
   const target = path.join(root, "ops.yaml");
   try { fs.writeFileSync(target, text, { encoding: "utf8", flag: "wx" }); }

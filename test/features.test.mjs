@@ -80,6 +80,13 @@ test("init ignores skipped tests and refuses an incomplete scan", () => temp((ro
   fs.unlinkSync(path.join(root, "ops.yaml"));
   const included = writeStarterManifest(root, { includeTests: true });
   assert.deepEqual(included.providers, ["stripe"]);
+  const text = fs.readFileSync(path.join(root, "ops.yaml"), "utf8");
+  assert.match(text, /include_tests: true/);
+  const audited = auditRepository(root);
+  assert.equal(audited.includeTests, true);
+  assert.equal(audited.status, "pass");
+  assert.deepEqual(audited.manifestOnly, []);
+  assert.ok(audited.scan.services.some(item => item.id === "stripe"));
 }));
 
 test("init does not create a manifest when scanning fails", () => temp((root, write) => {
@@ -269,3 +276,130 @@ test("this repository has no blocking findings and no personal gmail address", (
     }
   }
 });
+
+test("init prints the subdirectory manifest and keeps test providers visible", () => temp((root, write) => {
+  write("sub/tests/requirements.txt", "stripe==1.0.0\n");
+  const run = spawnSync(process.execPath, [cli, "init", "sub", "--include-tests"], { cwd: root, encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.match(run.stdout, /Wrote sub\/ops\.yaml/);
+  const text = fs.readFileSync(path.join(root, "sub", "ops.yaml"), "utf8");
+  assert.match(text, /include_tests: true/);
+  assert.match(text, /^\s+stripe:/m);
+  const audited = auditRepository(path.join(root, "sub"));
+  assert.equal(audited.includeTests, true);
+  assert.equal(audited.status, "pass");
+  assert.deepEqual(audited.manifestOnly, []);
+  assert.ok(audited.scan.services.some(item => item.id === "stripe"));
+}));
+
+test("bare hostnames stay weak and a longer name is not that host", () => temp((root, write) => {
+  write("site.html", `<a href="${host(["pages.dev", "example", "com"])}/article">x</a>\n`);
+  assert.equal(provider(scanRepository(root), "cloudflare-pages"), undefined);
+  write("app.js", `const url = ${JSON.stringify(host(["formspree", "io"]) + "/blog")};\n`);
+  write("page.html", `<a href="${host(["formspree", "io"])}/blog">blog</a>\n`);
+  write("tool.py", `url = ${JSON.stringify(host(["upload.pypi", "org"]) + "/legacy/")}\n`);
+  fs.unlinkSync(path.join(root, "app.js"));
+  const weak = scanRepository(root);
+  assert.equal(provider(weak, "formspree").confidence, "weak");
+  assert.equal(provider(weak, "pypi").confidence, "weak");
+  write("real.html", `<a href="${host(["demo.pages", "dev"])}">pages</a>\n`);
+  assert.equal(provider(scanRepository(root), "cloudflare-pages").confidence, "weak");
+}));
+
+test("generic custom domains, twine, lockfiles, and GitHub Packages are not blocking registry evidence", () => temp((root, write) => {
+  write("config.json", '{"customDomain":"model field"}\n');
+  write("package.json", JSON.stringify({ dependencies: { twine: "*" } }));
+  const registry = host(["registry.npmjs", "org"]);
+  write("package-lock.json", JSON.stringify({ packages: { "": { resolved: registry + "/left" } } }));
+  write("apps/package-lock.json", JSON.stringify({ packages: { "": { resolved: registry + "/right" } } }));
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          registry-url: https://npm.pkg.github.com\n");
+  const quiet = scanRepository(root);
+  assert.equal(provider(quiet, "custom-domain"), undefined);
+  assert.equal(provider(quiet, "pypi"), undefined);
+  assert.equal(provider(quiet, "npm"), undefined);
+  write("vercel.json", '{"customDomain":"example.com"}\n');
+  write("requirements.txt", "twine==5.0.1\n");
+  write(".github/workflows/publish.yml", "jobs:\n  publish:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          registry-url: " + registry + "\n      - run: npm stage publish\n");
+  const found = scanRepository(root);
+  assert.equal(provider(found, "custom-domain").confidence, "strong");
+  assert.equal(provider(found, "pypi").confidence, "strong");
+  assert.equal(provider(found, "npm").confidence, "strong");
+}));
+
+test("Cloudflare Pages actions and lowercase GitHub Pages actions are detected", () => temp((root, write) => {
+  write(".github/workflows/pages.yml", [
+    "jobs:",
+    "  deploy:",
+    "    steps:",
+    "      - uses: cloudflare/wrangler-action@v3",
+    "        with:",
+    "          command: pages deploy",
+    "      - uses: cloudflare/pages-action@v1",
+    "      - uses: jamesives/github-pages-deploy-action@v4"
+  ].join("\n"));
+  const result = scanRepository(root);
+  assert.equal(provider(result, "cloudflare-pages").confidence, "strong");
+  assert.equal(provider(result, "github-pages").confidence, "strong");
+  assert.equal(provider(result, "cloudflare"), undefined);
+}));
+
+test("hygiene ignores workflow secrets, emscripten paths, and longer domains", () => temp((root, write) => {
+  const email = ["dev", dot(["gmail", "com"])].join("@");
+  const lookalike = ["dev", [dot(["gmail", "com"]), "example", "org"].join(".")].join("@");
+  const home = ["", "home", "dev"].join("/");
+  const emscripten = ["", "home", "web_user"].join("/");
+  const mac = ["", "Users", "ada"].join("/");
+  write("app.js", [
+    'const password = "${{ secrets.DOCKERHUB_TOKEN }}";',
+    `const email = ${JSON.stringify(email)};`,
+    `const other = ${JSON.stringify(lookalike)};`,
+    `const home = ${JSON.stringify(home)};`,
+    `const wasm = ${JSON.stringify(emscripten)};`,
+    `const mac = ${JSON.stringify(mac)};`
+  ].join("\n"));
+  const result = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(result.blocking.filter(item => item.check === "personal-email").length, 1);
+  assert.equal(result.blocking.filter(item => item.check === "local-path").length, 2);
+  assert.equal(result.blocking.some(item => item.rule === "assigned-secret"), false);
+}));
+
+test("hygiene reads docs and config text without turning them into providers", () => temp((root, write) => {
+  const email = ["dev", dot(["gmail", "com"])].join("@");
+  write("README.md", `Contact ${email} via ${host(["formsubmit", "co"])}\n`);
+  write("notes.txt", `see ${email}\n`);
+  write("setup.cfg", `maintainer = ${email}\n`);
+  write("app.ini", `owner = ${email}\n`);
+  write("feed.xml", `<author>${email}</author>\n`);
+  const quiet = scanRepository(root);
+  assert.deepEqual(quiet.services, []);
+  const noisy = auditRepository(root, undefined, { hygiene: true });
+  assert.equal(noisy.scan.services.length, 0);
+  assert.equal(noisy.blocking.filter(item => item.check === "personal-email").length, 5);
+}));
+
+test("a 1 MiB adversarial file finishes well under a second", () => temp((root, write) => {
+  const form = "<" + "form ";
+  write("index.html", form.repeat(Math.ceil(1048576 / form.length)).slice(0, 1048576));
+  const started = performance.now();
+  const forms = scanRepository(root);
+  const formElapsed = performance.now() - started;
+  assert.equal(forms.complete, true, JSON.stringify(forms.warnings));
+  assert.equal(provider(forms, "netlify-forms"), undefined);
+  assert.ok(formElapsed < 1000, `form scan took ${formElapsed}ms`);
+  const action = "cloudflare/wrangler-action ";
+  write(".github/workflows/slow.yml", action.repeat(Math.ceil(1048576 / action.length)).slice(0, 1048576));
+  const workflowStarted = performance.now();
+  const workflow = scanRepository(root);
+  const workflowElapsed = performance.now() - workflowStarted;
+  assert.equal(workflow.complete, true, JSON.stringify(workflow.warnings));
+  assert.equal(provider(workflow, "cloudflare-pages"), undefined);
+  assert.ok(workflowElapsed < 1000, `workflow scan took ${workflowElapsed}ms`);
+  const dots = "a.a.a.";
+  write("notes.md", dots.repeat(Math.ceil(1048576 / dots.length)).slice(0, 1048576));
+  const hygieneStarted = performance.now();
+  const hygiene = scanRepository(root, { hygiene: true });
+  const hygieneElapsed = performance.now() - hygieneStarted;
+  assert.equal(hygiene.complete, true, JSON.stringify(hygiene.warnings));
+  assert.deepEqual(hygiene.hygiene, []);
+  assert.ok(hygieneElapsed < 1000, `hygiene scan took ${hygieneElapsed}ms`);
+}));

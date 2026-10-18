@@ -3,6 +3,12 @@
   "version": "0.1.2",
   "description": "Deterministic operational dependency and custody drift detection for Git repositories.",
   "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
   "bin": {"ops-drift": "src/cli.js"},
   "files": ["src", "action.yml", "README.md", "LICENSE", "docs/execution-model.md"],
   "scripts": {

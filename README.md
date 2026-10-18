@@ -14,9 +14,11 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**Source version 0.1.2.** The npm package `ops-drift-gate@0.1.1` remains the published `latest` release. This repository bump does not publish to npm. A maintainer still approves each release with 2FA. The tagged GitHub Action example below stays on `v0.1.1` until that tag is published.
+**Source version 0.1.2.** The npm package `ops-drift-gate@0.1.1` remains the published `latest` release. This repository bump does not publish to npm and does not create a `v0.1.2` tag. A maintainer still approves each release with 2FA.
 
 v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
+
+**Upgrading from 0.1.1.** Version 0.1.2 adds blocking detectors. A form action, a form script source, a hosting file, a package-registry publish step, or a custom-domain key in a known hosting config can fail a repository that previously passed, until that provider is recorded in `ops.yaml`. A bare hostname in `.js`, `.html`, or `.py` stays informational and does not fail the gate by itself.
 
 The core has zero runtime dependencies and requires Node 24+.
 
@@ -117,15 +119,15 @@ Unknown ordinary fields are errors at the root, service, custody, and ignore lev
 
 Evidence is classified deterministically.
 
-- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an explicit integration signature such as a form endpoint, package-registry publish, or hosting configuration key.
+- **strong** — package dependency, environment-variable name, known operational file, workflow file, or an explicit integration signature such as a form action, a script source, a package-registry publish step, or a hosting configuration key.
 - **corroborated** — multiple non-strong signals agree.
-- **weak** — one content signature only.
+- **weak** — one content signature only, including a bare hostname.
 
-Weak findings are reported but do **not** fail the undocumented-provider gate until corroborated. This keeps a stray hostname or class name from breaking CI by itself.
+Weak findings are reported but do **not** fail the undocumented-provider gate until corroborated. A stray hostname or class name does not break CI by itself.
 
 ## GitHub Action
 
-Use the v0.1.1 GitHub Action:
+The published tag `v0.1.1` accepts only the inputs that release implements: `path`, `manifest`, `fail_on_undocumented`, and `require_custody`.
 
 ```yaml
 name: Operational custody check
@@ -154,14 +156,27 @@ jobs:
 
 For maximum immutability, pin the reviewed release commit SHA instead of the version tag.
 
+Source version 0.1.2 is not a published release and has no tag. From a checkout of this source, the Action also accepts `hygiene` and `include_tests`:
+
+```yaml
+      - uses: ./
+        with:
+          path: .
+          manifest: ops.yaml
+          fail_on_undocumented: true
+          require_custody: true
+          hygiene: false
+          include_tests: ""
+```
+
 Inputs:
 
-- `path` — repository path confined to `GITHUB_WORKSPACE`; links and junctions are rejected.
-- `manifest` — optional path confined to the scan root. Blank discovers `ops.yaml`, `ops.yml`, or `ops.json`.
-- `fail_on_undocumented` — fail for strong/corroborated providers with no manifest instance.
-- `require_custody` — also fail when production-required documented instances lack owner, billing owner, transferability, or a recovery-procedure reference.
-- `hygiene` — also run the optional secret-pattern, personal-email, and absolute-local-path checks. Default `false`.
-- `include_tests` — set to `true` or `false` to override the manifest. Leave it blank to use `scan.include_tests`.
+- `path` — repository path confined to `GITHUB_WORKSPACE`; links and junctions are rejected. Present in v0.1.1 and in this source.
+- `manifest` — optional path confined to the scan root. Blank discovers `ops.yaml`, `ops.yml`, or `ops.json`. Present in v0.1.1 and in this source.
+- `fail_on_undocumented` — fail for strong/corroborated providers with no manifest instance. Present in v0.1.1 and in this source.
+- `require_custody` — also fail when production-required documented instances lack owner, billing owner, transferability, or a recovery-procedure reference. Present in v0.1.1 and in this source.
+- `hygiene` — source 0.1.2 only. Also run the optional secret-pattern, personal-email, and absolute-local-path checks. Default `false`.
+- `include_tests` — source 0.1.2 only. Set to `true` or `false` to override the manifest. Leave it blank to use `scan.include_tests`.
 
 The Action uses the Node 24 JavaScript Action runtime.
 
@@ -187,7 +202,7 @@ All four Node dependency groups (runtime, development, peer, optional) remain st
 
 Exit codes: `0` for a complete scan with enabled policies passing; `1` for path, manifest, I/O, encoding, resource, or incomplete-scan errors; `2` for a complete scan with blocking policy findings under `--ci`. Without `--ci`, policy findings remain visible and do not change the CLI exit code. `--json` emits schema v1 with `status`, `complete`, relative paths, findings, hygiene results, manifest-only inventory, active blocking findings, and warning codes. `tool.version` is the `version` field of this package's `package.json`. A finding's `confidence` is recalculated after scoped ignores; `activeConfidence` remains as a deprecated compatibility alias with the same value. Custody values and raw source lines are not echoed. Diagnostics do not include raw exceptions or stack traces.
 
-Default limits: 100,000 visited entries; 10,000 candidate files; 1 MiB per candidate; 256 MiB total candidate bytes; 64 path components; 20,000 evidence/variable-name records; one million ignore comparisons and 20,000 matched-ignore annotations; 30 seconds of scan traversal; manifest 256 KiB, 10,000 keys, depth 16, text fields 2,048 characters; path input 4,096 characters. Limits cause an explicit incomplete error, never a pass. The scan-time budget is cooperative; it cannot preempt a blocking filesystem call. Node API callers may lower traversal limits but cannot raise them.
+Default limits: 100,000 visited entries; 10,000 candidate files; 1 MiB per candidate; 256 MiB total candidate bytes; 64 path components; 20,000 evidence/variable-name records; one million ignore comparisons and 20,000 matched-ignore annotations; 30 seconds of scan traversal; manifest 256 KiB, 10,000 keys, depth 16, text fields 2,048 characters; path input 4,096 characters. Limits cause an explicit incomplete error, never a pass. The scan-time budget is checked between files and between pattern checks inside a file. It is cooperative and cannot preempt a blocking filesystem call or a single pattern match. Node API callers may lower traversal limits but cannot raise them.
 
 Excluded directory names: `.git`, `node_modules`, `dist`, `build`, `.next`, `.cache`, `coverage`, `vendor`, plus test and fixture directories (`test`, `tests`, `__tests__`, `fixtures`) unless inclusion is requested. Sensitive files and documentation are outside the declared detection scope. Links, junctions, hardlinked candidates, relevant unreadable/malformed inputs, invalid UTF-8 and NUL-containing candidates produce errors. Resource bounds count included entries before content reads. Traversal is iterative and streams directory entries.
 
@@ -208,11 +223,11 @@ Ops Drift Gate is intentionally conservative, but it is **not a secrets scanner*
 
 ### Optional hygiene checks
 
-`--hygiene` is off by default. When enabled, the same candidate files are checked for:
+`--hygiene` is off by default. When enabled, provider candidates are checked, and so are documentation (`.md` and `.txt`, other than `requirements*.txt`) plus `.cfg`, `.ini`, and `.xml` files. Those extra files do not supply provider evidence. The checks look for:
 
-- secret-shaped tokens (cloud access-key prefixes, GitHub and Slack token prefixes, live Stripe secret prefixes, private-key headers, and quoted assignments to common secret names)
-- personal email providers such as Gmail, Outlook, iCloud, Yahoo, AOL, and Proton
-- absolute local paths beginning with a Windows drive (`C:\` or `C:/`) or a Unix home directory (`/home/`)
+- secret-shaped tokens (cloud access-key prefixes, GitHub and Slack token prefixes, live Stripe secret prefixes, private-key headers, and quoted assignments to common secret names). A GitHub Actions secret or variable expression is not treated as a hardcoded value.
+- personal email providers such as Gmail, Outlook, iCloud, Yahoo, AOL, and Proton, only when the domain ends there
+- absolute local paths that start with a Windows drive letter, a Unix home directory, or a macOS user directory. The Emscripten placeholder home directory is ignored.
 
 These checks report the rule, repository-relative path, and line number. They do not copy the matched secret, address, or path into text or JSON output. They are not a secrets scanner and do not read files the sensitive-path policy already skips. With `--ci`, hygiene findings are blocking.
 

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SERVICE_RULES } from "./rules.js";
+import { SERVICE_RULES, structuralMatches } from "./rules.js";
 import { collectHygiene } from "./hygiene.js";
 import { checkGitRepresentation } from "./git-index.js";
 import { LIMITS, checkedPath, fail, isSensitivePath, readBounded, repositoryRoot, safeError, safeText, snapshotGuard } from "./safety.js";
@@ -9,6 +9,8 @@ const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".c
 const TEST_DIRS = new Set(["test", "tests", "__tests__", "fixtures"]);
 const TEST_FILE = /\.(?:test|spec)\.[^.]+$/i;
 const CONFIG_EXTENSIONS = new Set([".toml", ".yaml", ".yml", ".json", ".jsonc"]);
+const HYGIENE_ONLY_EXTENSIONS = new Set([".cfg", ".ini", ".xml"]);
+const LOCKFILES = new Set(["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "poetry.lock", "pipfile.lock"]);
 const ENV_TEMPLATES = new Set([".env.example", ".env.sample", ".env.template"]);
 const TEXT_EXTENSIONS = new Set([
   ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json", ".jsonc", ".yaml", ".yml", ".toml",
@@ -107,7 +109,10 @@ function inspectPackages(rel, text, store) {
       const name = line.split(/[<>=!~;\s\[]/, 1)[0]?.trim();
       if (name) packages.add(name);
     }
-    for (const pkg of packages) for (const rule of SERVICE_RULES) if (rule.packagePatterns?.some(re => re.test(pkg))) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package dependency matching ${rule.id}` });
+    for (const pkg of packages) for (const rule of SERVICE_RULES) {
+      const patterns = [...(rule.packagePatterns ?? []), ...(rule.pythonPackagePatterns ?? [])];
+      if (patterns.some(re => re.test(pkg))) addEvidence(store, rule, { path: normalize(rel), kind: "package", detail: `package dependency matching ${rule.id}` });
+    }
     return;
   }
   if (base !== "package.json") return;
@@ -138,6 +143,7 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
   const checkTime = () => { if (performance.now() - started > limits.milliseconds) fail("SCAN_TIME_LIMIT"); };
   const services = new Map();
   services.seen = new Set(); services.limit = limits.evidence;
+  const ruleById = new Map(SERVICE_RULES.map(rule => [rule.id, rule]));
   const envVars = new Map();
   const skippedSensitiveFiles = [];
   const hygiene = [];
@@ -158,14 +164,27 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
     const base = path.basename(rel).toLowerCase();
     const envTemplate = ENV_TEMPLATES.has(base);
     const dependencyTextFile = /^requirements(?:-[^.]+)?\.txt$/.test(base);
-    if ((!TEXT_EXTENSIONS.has(ext) && base !== "dockerfile" && base !== "procfile" && !envTemplate) || ([".md", ".txt"].includes(ext) && !dependencyTextFile)) continue;
+    const documentation = (ext === ".md" || ext === ".txt") && !dependencyTextFile;
+    const hygieneExtra = HYGIENE_ONLY_EXTENSIONS.has(ext);
+    const ordinaryText = TEXT_EXTENSIONS.has(ext) || base === "dockerfile" || base === "procfile" || envTemplate;
+    const wantHygiene = options.hygiene === true;
+    if ((!ordinaryText && !(wantHygiene && hygieneExtra)) || (documentation && !wantHygiene)) continue;
 
     if (++scannedFiles > limits.candidates) fail("CANDIDATE_COUNT_LIMIT");
     const { text, bytes } = readBounded(root, full, limits.fileBytes, limits.totalBytes - candidateBytes, guard);
     candidateBytes += bytes;
     const lineFor = lineLookup(text);
+    const recordHygiene = () => {
+      if (!wantHygiene) return;
+      checkTime();
+      for (const item of collectHygiene(text, safeText(normalized), lineFor, checkTime)) {
+        if (hygiene.length >= limits.evidence) fail("EVIDENCE_COUNT_LIMIT");
+        hygiene.push(item);
+      }
+    };
+    if (LOCKFILES.has(base)) { recordHygiene(); checkTime(); continue; }
     inspectPackages(rel, text, services);
-    const detectionEligible = envTemplate || dependencyTextFile || ![".md", ".txt"].includes(ext);
+    const detectionEligible = !documentation && !hygieneExtra;
     const extractedEnv = detectionEligible ? extractEnvNames(text, envTemplate) : [];
     let matches = 0;
 
@@ -181,8 +200,8 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
       for (const rule of SERVICE_RULES) if (rule.envPatterns?.some(re => re.test(env.name))) addEvidence(services, rule, { path: normalized, kind: "env", detail: `environment variable name: ${env.name}`, line: lineFor(env.index) });
     }
 
-    for (const rule of SERVICE_RULES) {
-      if (!detectionEligible) continue;
+    if (detectionEligible) for (const rule of SERVICE_RULES) {
+      checkTime();
       if (rule.id === "scheduled-jobs" && !/(^|\/)\.github\/workflows\/[^/]+\.(yml|yaml)$/i.test(normalized) && !/(^|\/)vercel\.json$/i.test(normalized)) continue;
       for (const regex of rule.contentPatterns ?? []) {
         const match = firstMatch(regex, text);
@@ -193,24 +212,27 @@ export function scanRepository(rootInput, options = {}, sharedGuard) {
       const workflow = /(^|\/)\.github\/workflows\/[^/]+\.(yml|yaml)$/i.test(normalized);
       const configFile = CONFIG_EXTENSIONS.has(ext);
       for (const rule of SERVICE_RULES) {
+        checkTime();
         for (const regex of rule.hostPatterns ?? []) {
           const match = firstMatch(regex, text);
-          if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "integration", detail: "provider integration signature", line: lineFor(match.index) });
+          if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "content", detail: "hostname mention", line: lineFor(match.index) });
         }
         if (workflow) for (const regex of rule.workflowPatterns ?? []) {
           const match = firstMatch(regex, text);
           if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "workflow", detail: "workflow integration step", line: lineFor(match.index) });
         }
-        if (configFile) for (const regex of rule.configPatterns ?? []) {
+        if (configFile && rule.configPatterns?.length && (!rule.configFiles || rule.configFiles.test(normalized))) for (const regex of rule.configPatterns) {
           const match = firstMatch(regex, text);
           if (match?.index != null) addEvidence(services, rule, { path: normalized, kind: "integration", detail: "operational configuration key", line: lineFor(match.index) });
         }
       }
-      if (options.hygiene === true) for (const item of collectHygiene(text, safeText(normalized), lineFor)) {
-        if (hygiene.length >= limits.evidence) fail("EVIDENCE_COUNT_LIMIT");
-        hygiene.push(item);
+      checkTime();
+      for (const hit of structuralMatches(text, checkTime)) {
+        const rule = ruleById.get(hit.id);
+        if (rule) addEvidence(services, rule, { path: normalized, kind: "integration", detail: "provider integration signature", line: lineFor(hit.index) });
       }
     }
+    recordHygiene();
     checkTime();
   }
   if (!sharedGuard) guard.verify(checkTime);
