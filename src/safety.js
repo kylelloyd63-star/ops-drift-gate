@@ -105,10 +105,18 @@ export function readBytesBounded(root, file, maximum, remaining = Infinity, guar
     return { data: data.subarray(0, count), bytes: count };
   } finally { fs.closeSync(descriptor); }
 }
-export function readBounded(root, file, maximum, remaining = Infinity, guard) {
+export function readBounded(root, file, maximum, remaining = Infinity, guard, mode = "strict") {
   const { data, bytes } = readBytesBounded(root, file, maximum, remaining, guard);
-  let text;
-  try { text = new TextDecoder("utf-8", { fatal: true }).decode(data); } catch { fail("INVALID_UTF8"); }
-  if (text.includes("\0")) fail("NUL_IN_TEXT");
-  return { text, bytes };
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    if (text.includes("\0")) {
+      if (mode === "hygiene") return { text: "", bytes, skipped: "SKIPPED_NON_UTF8" };
+      fail("NUL_IN_TEXT");
+    }
+    return { text, bytes, skipped: null };
+  } catch (error) {
+    if (error instanceof SafetyError) throw error;
+    if (mode === "hygiene") return { text: "", bytes, skipped: "SKIPPED_NON_UTF8" };
+    fail("INVALID_UTF8");
+  }
 }

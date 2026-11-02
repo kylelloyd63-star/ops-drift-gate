@@ -8,6 +8,12 @@ function booleanInput(name, fallback) {
   if (!["true", "false"].includes(value)) fail("INVALID_BOOLEAN_INPUT");
   return value === "true";
 }
+function optionalBoolean(name) {
+  const value = process.env[name];
+  if (value == null || value === "") return undefined;
+  if (!["true", "false"].includes(value)) fail("INVALID_BOOLEAN_INPUT");
+  return value === "true";
+}
 function output(status, undocumented = 0, custody = 0, complete = false) {
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, "undocumented_count=" + undocumented + "\nunknown_custody_count=" + custody + "\nstatus=" + status + "\ncomplete=" + complete + "\n");
 }
@@ -15,10 +21,13 @@ try {
   if (!process.env.GITHUB_WORKSPACE) fail("GITHUB_WORKSPACE_REQUIRED");
   const root = repositoryRoot(process.env.INPUT_PATH ?? ".", process.env.GITHUB_WORKSPACE);
   const manifest = process.env.INPUT_MANIFEST === "" ? undefined : process.env.INPUT_MANIFEST;
+  const includeTests = optionalBoolean("INPUT_INCLUDE_TESTS");
   const result = auditRepository(root, manifest, {
     workspace: process.env.GITHUB_WORKSPACE,
     requireCustody: booleanInput("INPUT_REQUIRE_CUSTODY", "false"),
-    failOnUndocumented: booleanInput("INPUT_FAIL_ON_UNDOCUMENTED", "true")
+    failOnUndocumented: booleanInput("INPUT_FAIL_ON_UNDOCUMENTED", "true"),
+    hygiene: optionalBoolean("INPUT_HYGIENE") ?? false,
+    ...(includeTests === undefined ? {} : { includeTests })
   });
   const report = formatReport(result);
   console.log(report);

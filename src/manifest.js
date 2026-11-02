@@ -100,7 +100,7 @@ function fields(value, allowed) {
 }
 function optionalText(value) { if (value !== null && (typeof value !== "string" || !value.trim())) fail("INVALID_MANIFEST_TEXT"); return value === null ? null : value.trim(); }
 export function validateManifest(raw) {
-  checkTree(raw); fields(raw, ["version", "services", "ignores"]);
+  checkTree(raw); fields(raw, ["version", "services", "ignores", "scan"]);
   if (!Object.hasOwn(raw, "version") || raw.version !== 1) fail("Manifest version must be 1.");
   if (!Object.hasOwn(raw, "services") || !record(raw.services)) fail("MANIFEST_SERVICES_REQUIRED");
   const services = Object.create(null), ignores = Object.create(null);
@@ -140,7 +140,16 @@ export function validateManifest(raw) {
       ignores[id] = out;
     }
   }
-  return { version: 1, services, ignores };
+  let includeTests = false;
+  if (Object.hasOwn(raw, "scan")) {
+    if (!record(raw.scan)) fail("MANIFEST_MAPPING_REQUIRED");
+    fields(raw.scan, ["include_tests"]);
+    if (Object.hasOwn(raw.scan, "include_tests")) {
+      if (typeof raw.scan.include_tests !== "boolean") fail("INVALID_SCAN_OPTION");
+      includeTests = raw.scan.include_tests;
+    }
+  }
+  return { version: 1, services, ignores, scan: { include_tests: includeTests } };
 }
 export function loadManifest(rootInput, explicitPath, guard) {
   const root = repositoryRoot(rootInput);

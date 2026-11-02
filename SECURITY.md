@@ -16,7 +16,9 @@ If you find a path that causes known secret files to be read, secret material to
 
 ## Reporting
 
-Until GitHub private vulnerability reporting is enabled, open a GitHub issue that only says you need a private security contact. Do **not** include vulnerability details, reproduction steps, secret values, or sensitive paths in a public issue. Once private vulnerability reporting is enabled, use the repository's **Security → Advisories → Report a vulnerability** flow.
+Email security reports to [hello@dripstaticstudios.com](mailto:hello@dripstaticstudios.com). Include the affected version and a description of the impact. Do not include secret values, recovery codes, or private keys.
+
+Do not open a public GitHub issue with vulnerability details, reproduction steps, secret values, or sensitive paths. A public issue that only asks for a private follow-up is optional after you have emailed the address above.
 
 ## Filesystem boundary and supported execution
 

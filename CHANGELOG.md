@@ -1,15 +1,30 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
+- Read `tool.version` from `package.json` for `--version` and `--json`. This fixes the published 0.1.1 report, which printed `0.1.0`.
+- Skip `test/`, `tests/`, `__tests__/`, and `fixtures/` directories, plus `*.test.*` and `*.spec.*` files, unless `scan.include_tests` is true or `--include-tests` is set.
+- Add `ops-drift init`, which writes a starter `ops.yaml` and does not overwrite an existing manifest. A missing-manifest failure names that command.
+- Detect form backends (FormSubmit, Formspree, Netlify Forms, Getform, and Web3Forms), GitHub Pages, Netlify, Cloudflare Pages, custom domains, npm publish configuration, and PyPI.
+- Add optional `--hygiene` checks for secret-shaped tokens, personal email providers, and absolute local paths. Matched text is not copied into the report.
 - Report `confidence` after scoped ignores are applied; retain `activeConfidence` as a deprecated compatibility alias with the same value.
+- Upgrading from 0.1.1 can turn a previous pass into a failure. Form actions, form script sources, hosting files, package-registry publish steps, and custom-domain keys in known hosting configs are blocking evidence. A bare hostname stays informational.
+- Keep hostname, form, email, and registry patterns bounded, and check the scan time limit between pattern checks inside a file.
+- Scheduled-job matching uses horizontal whitespace only. A private `publishConfig.registry` or `npm publish --registry` target is not the public npm Registry. Netlify form attributes count only on a form tag. A fetch to a form endpoint counts as integration evidence. Cloudflare Pages workflow matching stays inside one step. Hygiene skips non-UTF-8 documentation instead of failing the scan, still flags a hardcoded secret next to an Actions expression, and recognizes more absolute-path shapes without reading lockfiles.
+- Actions expression checks are linear and bounded. A shell tilde is not an absolute path. A form host counts only as a string argument of a call, including a JSX attribute after a braced value. A setup-node `registry-url` for another registry keeps a plain npm publish in that job off the public npm Registry. Cloudflare Pages workflow matching stays inside one step of one job. Hygiene recognizes the root user's home directory and ignores the hosted-runner home directory and a one-character drive segment.
+- Workflow lines are searched only within the line. Quoted strings end at a newline, regex literals are skipped, and HTML, Vue, and Svelte calls are read from script blocks. A package registry and the registry in effect at each publish decide whether a plain publish is the public npm Registry. Object `url` arguments count. Cloudflare Pages uses the action command, not a comment or step name. An Actions expression with a literal fallback is still a secret. A root-relative web link is not a local path. A JSX regex does not hide a later form attribute.
+- A private registry suppresses only the package or workspace that publish actually targets. Only the top-level `url` of an HTTP call config counts. Cloudflare Pages ignores an inline comment and still reads a step that starts with `with:`. Hygiene keeps image sources, CSS urls, and `*url` assignments, and still ignores a root-relative href, action, or Markdown link. A quoted string fallback in an Actions expression still counts.
+- Workspace publish targets follow the packages npm would publish, including `--workspaces=false`, `--include-workspace-root`, and the job working directory. A shell comment cannot change that target. Object `url` counts only on a request config. Cloudflare Pages stops at the `with` block and ignores a comment in a block command. Hygiene keeps Markdown images, code arguments, and shell variables, and still reads a quoted secret that contains an escaped quote. An empty or secret-reference fallback is not a hardcoded secret.
+- A nested `**` workspace glob and a parent directory selector still count as a public publish. A job-level working directory applies whether it is written before or after `steps`.
+- Workspace globs match a `*` or `?` inside one path segment, and a parent-directory selector is a direct lookup. Both stay inside the scan time limit.
+- A workspace pattern that uses a character class, brace, extglob, or exclusion stays a possible match under its literal prefix, so that syntax cannot hide a public package.
 
 ## 0.1.1
 
 - Skip Docker auth config, common service-account JSON, `auth.json`, `.npmrc`, `.pypirc`, `.netrc`, and common SSH private-key filenames without reading their contents.
 - Enforce canonical LF line endings in packaged files and normalize repository text to LF for reproducible cross-platform packages.
 - Publish to npm through OIDC trusted publishing with staged releases that require maintainer 2FA approval.
-- Known issue: `--json` output reports `tool.version` as `0.1.0`; `--version` correctly prints `0.1.1`.
+- Known issue: `--json` output reports `tool.version` as `0.1.0`; `--version` correctly prints `0.1.1`. Fixed in 0.1.2.
 
 ## 0.1.0 — release candidate
 

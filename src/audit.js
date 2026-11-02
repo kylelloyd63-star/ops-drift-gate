@@ -15,7 +15,8 @@ export function auditRepository(root, manifestPath, options = {}) {
   const resolvedRoot = repositoryRoot(root, options.workspace);
   const guard = snapshotGuard(resolvedRoot);
   const loaded = loadManifest(resolvedRoot, manifestPath, guard);
-  const scan = scanRepository(resolvedRoot, options, guard);
+  const includeTests = options.includeTests ?? Boolean(loaded?.manifest.scan?.include_tests);
+  const scan = scanRepository(resolvedRoot, { ...options, includeTests }, guard);
   const services = loaded?.manifest.services ?? {};
   const ignores = loaded?.manifest.ignores ?? {};
   const entries = Object.entries(services);
@@ -65,6 +66,7 @@ export function auditRepository(root, manifestPath, options = {}) {
   const unknownCustody = requireCustody
     ? entries.filter(([, record]) => record.required_for_production !== false && custodyUnknowns(record).length).map(([id, record]) => ({ id, provider: record.provider, missing: custodyUnknowns(record) }))
     : [];
+  const hygieneBlocking = options.hygiene === true ? (scan.hygiene ?? []).map(item => ({ type: "hygiene", check: item.check, rule: item.rule, path: item.path, line: item.line })) : [];
 
   if (scan.complete) try { guard.verify(); } catch (error) {
     scan.complete = false; scan.warnings.push({ code: safeError(error), path: "." });
@@ -75,12 +77,14 @@ export function auditRepository(root, manifestPath, options = {}) {
     manifestVersion: loaded?.manifest.version ?? null,
     manifestOnly: entries.filter(([, record]) => !items.some(item => item.finding.id === record.provider)).map(([id, record]) => ({ id, provider: record.provider })),
     complete: scan.complete,
-    status: !scan.complete ? "error" : (options.failOnUndocumented !== false && undocumented.length || unknownCustody.length) ? "fail" : "pass",
+    status: !scan.complete ? "error" : (options.failOnUndocumented !== false && undocumented.length || unknownCustody.length || hygieneBlocking.length) ? "fail" : "pass",
     failOnUndocumented: options.failOnUndocumented !== false,
     requireCustody,
+    includeTests,
+    hygieneEnabled: options.hygiene === true,
     items,
     undocumented,
     unknownCustody,
-    blocking: [...(options.failOnUndocumented !== false ? undocumented.map(provider => ({ type: "undocumented", provider })) : []), ...unknownCustody.map(item => ({ type: "custody", ...item }))]
+    blocking: [...(options.failOnUndocumented !== false ? undocumented.map(provider => ({ type: "undocumented", provider })) : []), ...unknownCustody.map(item => ({ type: "custody", ...item })), ...hygieneBlocking]
   };
 }

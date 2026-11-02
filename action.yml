@@ -1,6 +1,6 @@
 name: Ops Drift Gate
 description: Detect external operational dependencies missing from the repository custody manifest.
-author: Kyle Lloyd
+author: Dripstatic Studios
 inputs:
   path:
     description: Repository path within GITHUB_WORKSPACE to scan
@@ -18,6 +18,14 @@ inputs:
     description: Also fail when production-required instances have incomplete custody fields
     required: false
     default: "false"
+  hygiene:
+    description: Enable optional checks for secret patterns, personal email addresses, and absolute local paths
+    required: false
+    default: "false"
+  include_tests:
+    description: Scan test and fixture paths. Blank uses the manifest scan.include_tests setting.
+    required: false
+    default: ""
 outputs:
   undocumented_count:
     description: Number of detected providers missing from the manifest, regardless of gate policy
