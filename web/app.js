@@ -411,7 +411,7 @@ function updateReportSummary(report) {
     document.querySelector("#result-context").textContent = "Signals found in this illustrative run";
     document.querySelector("#result-source").textContent = "SAMPLE RESULTS";
     document.querySelector("#data-mode-label").textContent = "ILLUSTRATIVE DATA";
-    previewMessage.textContent = "Preview only. This sample is illustrative. Open an Ops Drift Gate JSON report to review a real scan locally; the file stays in this browser.";
+    previewMessage.textContent = "Sample report. These findings are illustrative. Open an Ops Drift Gate JSON report to review a real scan locally; the file stays in this browser.";
     document.querySelector(".nav-count").textContent = "3";
     return;
   }

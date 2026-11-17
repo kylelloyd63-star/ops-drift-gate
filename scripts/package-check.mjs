@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "ops-package-"));
 const runtime = process.env.npm_execpath;
 if (!runtime) throw new Error("Run package-check through npm or pnpm.");
@@ -28,6 +28,7 @@ try {
     "package.json",
     "docs/execution-model.md",
     "docs/source-family-integration.md",
+    "web/README.md", "web/app.js", "web/index.html", "web/report.js", "web/styles.css", "web/tokens.css",
     ...filesUnder("src"),
     ...filesUnder("integrations")
   ].sort();
@@ -59,5 +60,33 @@ try {
   assert.equal(cli.status, 2); assert.equal(report.status, "fail"); assert.equal(report.tool.version, version);
   const action = run(process.execPath, [path.join(installed, "action.js")], { env: { ...process.env, GITHUB_WORKSPACE: target, INPUT_PATH: ".", INPUT_MANIFEST: "", INPUT_FAIL_ON_UNDOCUMENTED: "false", INPUT_REQUIRE_CUSTODY: "false", GITHUB_OUTPUT: path.join(scratch, "output"), GITHUB_STEP_SUMMARY: path.join(scratch, "summary") } });
   assert.match(action, /Gate status: PASS/);
-  console.log(JSON.stringify({ sha256, files, packed_cli: "pass", packed_action: "pass", offline_install: "pass", line_endings: "lf", runtime: process.version }));
+  const viewer = spawn(process.execPath, [path.join(installed, "cli.js"), "--view"], { stdio: ["ignore", "pipe", "inherit"] });
+  try {
+    const url = await new Promise((resolve, reject) => {
+      let output = "";
+      const timer = setTimeout(() => reject(new Error("Viewer did not start")), 6000);
+      viewer.once("error", reject);
+      viewer.once("exit", code => reject(new Error("Viewer exited: " + code)));
+      viewer.stdout.on("data", chunk => {
+        output += chunk;
+        if (output.includes("\n")) resolve(output.trim());
+      });
+      viewer.stdout.once("close", () => clearTimeout(timer));
+      timer.unref();
+    });
+    assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+    const response = await fetch(url);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /Dependency review/);
+    for (const asset of ["app.js", "report.js", "styles.css", "tokens.css"]) {
+      const staticResponse = await fetch(new URL(asset, url));
+      assert.equal(staticResponse.status, 200);
+      await staticResponse.arrayBuffer();
+    }
+    assert.equal((await fetch(new URL("package.json", url))).status, 404);
+    assert.equal((await fetch(url, { method: "POST", body: "{}" })).status, 405);
+  } finally {
+    viewer.kill();
+  }
+  console.log(JSON.stringify({ sha256, packed_viewer: "pass", files, packed_cli: "pass", packed_action: "pass", offline_install: "pass", line_endings: "lf", runtime: process.version }));
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }

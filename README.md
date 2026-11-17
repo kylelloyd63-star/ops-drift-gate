@@ -1,8 +1,8 @@
 # Ops Drift Gate
 
-**Find the services a Git repository depends on before you take it over.**
+**You inherited the repo. Who owns the services that keep it running?**
 
-Ops Drift Gate spots signals for services such as hosting, payments, DNS, and email, then shows which ownership, billing, and recovery details still need to be confirmed. The scanner, GitHub Action, and report exports are free and open source under MIT. Run the scanner locally without an account.
+**Free and open source (MIT).** Scan locally, write a custody manifest, enforce it in CI, and review and export reports without an account.
 
 AI-assisted apps can accumulate hosting, databases, payments, email, DNS, OAuth, scheduled jobs, CI/CD, API accounts, environment variables, and billing relationships faster than anyone documents them. A repository can be perfectly clonable and still be impossible to take over safely.
 
@@ -26,9 +26,9 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**Source version 0.1.3-rc.0.** This review candidate includes the browser report viewer, Markdown handoff briefs, and Source Family transfer receipts. Run `npm view ops-drift-gate version` for the public release. A maintainer approves each release with 2FA.
+**The 0.2 release adds a local report viewer, redacted Markdown handoff briefs, and Source Family transfer receipts.** Try the preview with `npx --yes ops-drift-gate@next .`. Run `npm view ops-drift-gate dist-tags` to see the current preview and stable versions.
 
-v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`; `--handoff` generates a local Markdown brief with evidence paths and unresolved custody fields, never custody values or evidence contents. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
+v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`. In 0.2, `--handoff` generates a local Markdown brief with evidence paths and unresolved custody fields, never custody values or evidence contents. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
 
 **Upgrading from 0.1.1.** Version 0.1.2 adds blocking detectors. A form action, a form script source, a hosting file, a package-registry publish step, or a custom-domain key in a known hosting config can fail a repository that previously passed, until that provider is recorded in `ops.yaml`. A bare hostname in `.js`, `.html`, or `.py` stays informational and does not fail the gate by itself.
 
@@ -46,7 +46,7 @@ From a source checkout:
 node src/cli.js .
 ```
 
-From any machine with Node 24+, run the latest published npm package:
+To use the published npm package from any machine with Node 24+:
 
 ```bash
 npx --yes ops-drift-gate@latest .
@@ -62,14 +62,14 @@ Future automated publishes use OIDC trusted publishing plus npm staged publishin
 
 ## Create an operational handoff brief
 
-The source checkout includes a local browser report explorer for teams who need a human-readable handoff artifact. Generate a machine report, open the static explorer, and download an **Operational Handoff Brief**:
+Generate a report and launch the local browser viewer. With the preview package:
 
-```powershell
-node src/cli.js . --json | Set-Content -Encoding utf8 ops-drift-report.json
-python -m http.server 8000 --directory web
+```sh
+npx --yes ops-drift-gate@next . --json > ops-drift-report.json
+npx --yes ops-drift-gate@next --view
 ```
 
-Open `http://localhost:8000`, choose **Review JSON report**, then **Download handoff brief**. The report is read locally in your browser and is not uploaded. The brief includes known evidence and unresolved custody fields, not owner names, billing details, or recovery references. See [the explorer guide](web/README.md) for limitations and the full workflow.
+Open the loopback URL printed by the CLI, choose **Review JSON report**, then **Download handoff brief**. The report is read locally in your browser and is not uploaded. The brief includes known evidence and unresolved custody fields, not owner names, billing details, or recovery references. See [the explorer guide](web/README.md) for limitations and the full workflow.
 
 Gate undocumented providers in CI:
 
@@ -179,7 +179,7 @@ jobs:
 
 For maximum immutability, pin the reviewed release commit SHA instead of the version tag.
 
-Source version 0.1.2 is not a published release and has no tag. From a checkout of this source, the Action also accepts `hygiene` and `include_tests`:
+From a checkout of the current source, the Action also accepts `hygiene` and `include_tests`:
 
 ```yaml
       - uses: ./

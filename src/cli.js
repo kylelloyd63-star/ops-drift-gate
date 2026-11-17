@@ -8,6 +8,7 @@ import { TOOL_VERSION } from "./version.js";
 function usage() {
   return `ops-drift [path] [--ci] [--json | --handoff] [--manifest ops.yaml] [--require-custody] [--hygiene] [--include-tests]
 ops-drift init [path] [--include-tests]
+ops-drift --view
 
 Scans a repository for external operational dependencies and checks them against a human-maintained custody manifest.
 
@@ -20,6 +21,7 @@ Scans a repository for external operational dependencies and checks them against
   --include-tests     scan test and fixture paths that are skipped by default
   --help              show this help
   --version           show version
+  --view              serve the local report viewer and print its URL
 
 init                write a starter ops.yaml from detected providers; refuses to overwrite
 `;
@@ -71,9 +73,15 @@ function initError(error) {
 }
 
 try {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === "--view" && argv.length !== 1) throw new Error("Use --view by itself.");
+  const args = argv[0] === "--view" ? "view" : parseArgs(argv);
   if (args === "help") console.log(usage());
   else if (args === "version") console.log(TOOL_VERSION);
+  else if (args === "view") {
+    const { startViewer } = await import("./viewer.js");
+    console.log(await startViewer());
+  }
   else if (args.command === "init") {
     try {
       const written = writeStarterManifest(args.root, { includeTests: args.includeTests });
