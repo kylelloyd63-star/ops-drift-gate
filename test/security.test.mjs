@@ -85,9 +85,9 @@ test("DET-12 scoped ignores recalculate reported confidence",()=>fixture((root,w
  assert.equal(finding.activeConfidence,"weak");assert.match(formatReport(result),/\(weak\)/);
  const machineFinding=machineReport(result).findings[0];assert.equal(machineFinding.confidence,"weak");assert.equal(machineFinding.activeConfidence,"weak");
 }));
-test("ACTION-04 ACTION-05 fixed output grammar and escaped HTML summary",()=>fixture((root,write)=>{
+test("ACTION-04 ACTION-05 fixed output grammar and count-only step summary",()=>fixture((root,write)=>{
  const ticks=String.fromCharCode(96).repeat(3);write("package.json",'{"dependencies":{"resend":"*"}}');write("ops.yaml",template+"ignores:\n  fixture:\n    provider: resend\n    scope: all\n    reason: '<script>"+ticks+" ::error:: %0A</script>'\n");
- const r=launch(root);assert.equal(r.status,0,r.stderr);assert.equal(r.summary.includes("<script>"),false);assert.equal(r.summary.includes(ticks),false);assert.equal(r.stdout.includes("::error::"),false);assert.match(r.summary,/&lt;script&gt;/);for(const line of r.output.trim().split("\n"))assert.match(line,/^(undocumented_count|unknown_custody_count)=\d+$|^status=(pass|fail|error)$|^complete=(true|false)$/);
+ const r=launch(root);assert.equal(r.status,0,r.stderr);assert.equal(r.summary.includes("<script>"),false);assert.equal(r.summary.includes(ticks),false);assert.equal(r.summary.includes("&lt;script&gt;"),false);assert.match(r.summary,/Gate status: PASS/);assert.match(r.summary,/Services detected \| 1/);assert.equal(r.stdout.includes("::error::"),false);for(const line of r.output.trim().split("\n"))assert.match(line,/^(undocumented_count|unknown_custody_count)=\d+$|^status=(pass|fail|error)$|^complete=(true|false)$/);
 }));
 test("ACTION-10 no repository code execution or network dependency",()=>fixture((root,write)=>{
  const sentinel=path.join(root,"SENTINEL");write("app.js",'require("fs").writeFileSync('+JSON.stringify(sentinel)+',"bad"); process.env.OPENAI_API_KEY');write("package.json",'{"scripts":{"install":"node app.js"},"dependencies":{"openai":"*"}}');const r=launch(root,{HTTP_PROXY:"http://127.0.0.1:1",HTTPS_PROXY:"http://127.0.0.1:1"});assert.equal(r.status,0);assert.equal(fs.existsSync(sentinel),false);

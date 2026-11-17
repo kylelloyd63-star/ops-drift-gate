@@ -1,0 +1,37 @@
+:root {
+  color-scheme: dark;
+  --dss-background: #0b0710;
+  --dss-foreground: #f4efff;
+  --dss-global-green: #75ff9b;
+  --dss-drip-green: #82ff9a;
+  --dss-drip-midtone: #2edb7f;
+  --dss-drip-shadow: #07532f;
+  --dss-approved-fade-green: #b5fad3;
+  --dss-violet: #ab77ff;
+  --dss-magenta: #ff4bd7;
+  --dss-surface: #21132f;
+  --dss-surface-hover: #34204b;
+  --dss-keyline: #634777;
+  --dss-keyline-subtle: #473358;
+  --dss-radius-control: 8px;
+  --dss-radius-surface: 18px;
+
+  --page: #0b0c0e;
+  --panel: #111116;
+  --panel-raised: #17161c;
+  --panel-soft: #141319;
+  --line: #393540;
+  --line-soft: #29262f;
+  --text: var(--dss-foreground);
+  --muted: #c9c4cf;
+  --dim: #aaa4b1;
+  --signal-green: var(--dss-drip-green);
+  --signal-green-deep: var(--dss-drip-midtone);
+  --violet: var(--dss-violet);
+  --warning: var(--dss-magenta);
+  --critical: var(--dss-magenta);
+  --radius-control: var(--dss-radius-control);
+  --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --sans: Inter, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --display: Syne, "Segoe UI", sans-serif;
+}

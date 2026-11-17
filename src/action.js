@@ -32,7 +32,7 @@ try {
   const report = formatReport(result);
   console.log(report);
   output(result.status, result.undocumented.length, result.unknownCustody.length, result.complete);
-  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryMarkdown(report));
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryMarkdown(result));
   process.exitCode = result.status === "error" ? 1 : result.status === "fail" ? 2 : 0;
 } catch (error) {
   console.error("ops-drift action: " + safeError(error));

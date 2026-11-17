@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dripstatic:source-family-transfer-receipt:v1",
+  "title": "Source Family local transfer receipt",
+  "description": "A local provenance record for a SourceInk-to-SourceToMe transfer through SourceBridge. It contains hashes and opaque identifiers, never page content or filesystem paths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "transfer_id",
+    "transferred_at",
+    "relation",
+    "bridge",
+    "source",
+    "destination"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transferred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "relation": {
+      "enum": [
+        "exact-copy",
+        "derived"
+      ]
+    },
+    "bridge": {
+      "$ref": "#/$defs/bridge"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "destination": {
+      "$ref": "#/$defs/destination"
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "byteCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "version"
+      ],
+      "properties": {
+        "application": {
+          "const": "sourcebridge"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "version",
+        "content_sha256",
+        "content_bytes"
+      ],
+      "properties": {
+        "application": {
+          "const": "sourceink"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "content_bytes": {
+          "$ref": "#/$defs/byteCount"
+        }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "version",
+        "record_ref",
+        "content_sha256",
+        "content_bytes"
+      ],
+      "properties": {
+        "application": {
+          "const": "sourcetome"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "record_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "content_bytes": {
+          "$ref": "#/$defs/byteCount"
+        }
+      }
+    }
+  }
+}

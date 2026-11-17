@@ -1,8 +1,20 @@
 # Ops Drift Gate
 
-**Git tracks code. Ops Drift Gate tracks the operational dependencies that code alone does not transfer.**
+**You inherited the repo. Who owns the services that keep it running?**
+
+**Free and open source (MIT).** Scan locally, write a custody manifest, enforce it in CI, and review and export reports without an account.
 
 AI-assisted apps can accumulate hosting, databases, payments, email, DNS, OAuth, scheduled jobs, CI/CD, API accounts, environment variables, and billing relationships faster than anyone documents them. A repository can be perfectly clonable and still be impossible to take over safely.
+
+Built for teams shipping and inheriting software: founders, platform engineers, agencies, and maintainers who need a reliable handoff when a repository changes owners or operators.
+
+Ops Drift Gate makes that handoff reviewable:
+
+- **Find the operational footprint** from known repository signals, with evidence and confidence attached.
+- **Record who can keep it running** in a small, human-maintained manifest: service instances, owners, billing responsibility, transferability, and recovery references.
+- **Catch drift in pull requests** with a local-first CLI or GitHub Action, without sending repository contents to a hosted service.
+
+It is a focused operational-readiness check, not an exhaustive cloud inventory or a guarantee that every dependency will be detected. Detected evidence points to files; people confirm account ownership and custody.
 
 Ops Drift Gate is a deterministic scanner that answers:
 
@@ -14,9 +26,9 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**Source version 0.1.2.** The npm package `ops-drift-gate@0.1.1` remains the published `latest` release. This repository bump does not publish to npm and does not create a `v0.1.2` tag. A maintainer still approves each release with 2FA.
+**The 0.2 release adds a local report viewer, redacted Markdown handoff briefs, and Source Family transfer receipts.** Try the preview with `npx --yes ops-drift-gate@next .`. Run `npm view ops-drift-gate dist-tags` to see the current preview and stable versions.
 
-v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
+v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`. In 0.2, `--handoff` generates a local Markdown brief with evidence paths and unresolved custody fields, never custody values or evidence contents. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
 
 **Upgrading from 0.1.1.** Version 0.1.2 adds blocking detectors. A form action, a form script source, a hosting file, a package-registry publish step, or a custom-domain key in a known hosting config can fail a repository that previously passed, until that provider is recorded in `ops.yaml`. A bare hostname in `.js`, `.html`, or `.py` stays informational and does not fail the gate by itself.
 
@@ -34,10 +46,10 @@ From a source checkout:
 node src/cli.js .
 ```
 
-The published npm package is still `ops-drift-gate@0.1.1`. From any machine with Node 24+:
+To use the published npm package from any machine with Node 24+:
 
 ```bash
-npx --yes ops-drift-gate@0.1.1 .
+npx --yes ops-drift-gate@latest .
 ```
 
 Write a starter custody manifest from what the scanner found. `init` refuses to overwrite `ops.yaml`, `ops.yml`, or `ops.json`:
@@ -47,6 +59,17 @@ node src/cli.js init .
 ```
 
 Future automated publishes use OIDC trusted publishing plus npm staged publishing so a maintainer still approves each release with 2FA.
+
+## Create an operational handoff brief
+
+Generate a report and launch the local browser viewer. With the preview package:
+
+```sh
+npx --yes ops-drift-gate@next . --json > ops-drift-report.json
+npx --yes ops-drift-gate@next --view
+```
+
+Open the loopback URL printed by the CLI, choose **Review JSON report**, then **Download handoff brief**. The report is read locally in your browser and is not uploaded. The brief includes known evidence and unresolved custody fields, not owner names, billing details, or recovery references. See [the explorer guide](web/README.md) for limitations and the full workflow.
 
 Gate undocumented providers in CI:
 
@@ -156,7 +179,7 @@ jobs:
 
 For maximum immutability, pin the reviewed release commit SHA instead of the version tag.
 
-Source version 0.1.2 is not a published release and has no tag. From a checkout of this source, the Action also accepts `hygiene` and `include_tests`:
+From a checkout of the current source, the Action also accepts `hygiene` and `include_tests`:
 
 ```yaml
       - uses: ./
@@ -234,11 +257,12 @@ These checks report the rule, repository-relative path, and line number. They do
 ## CLI
 
 ```text
-ops-drift [path] [--ci] [--json] [--manifest ops.yaml] [--require-custody] [--hygiene] [--include-tests]
+ops-drift [path] [--ci] [--json | --handoff] [--manifest ops.yaml] [--require-custody] [--hygiene] [--include-tests]
 ops-drift init [path] [--include-tests]
 
 --ci                exit 2 when the gate has blocking findings
 --json              emit machine-readable JSON
+--handoff           emit a Markdown operational handoff brief; excludes custody values
 --manifest <path>   use a specific manifest path
 --require-custody   fail for incomplete custody on production-required instances
 --hygiene           check for secret patterns, personal emails, and absolute local paths
@@ -248,6 +272,12 @@ ops-drift init [path] [--include-tests]
 
 init                write a starter ops.yaml; refuses to overwrite an existing manifest
 ```
+
+Generate and save a local handoff brief with `ops-drift . --handoff > ops-handoff.md`. It lists known signals, evidence locations, and unresolved fields without printing custody values or evidence contents.
+
+## Source Family integration
+
+The SourceInk → SourceBridge → SourceToMe transfer receipt contract is documented in [the Source Family integration guide](docs/source-family-integration.md). It can check that the source and imported bytes match recorded hashes locally; it does **not** claim to prove that data stayed on-device or authenticate who created a receipt.
 
 ## What this is not
 

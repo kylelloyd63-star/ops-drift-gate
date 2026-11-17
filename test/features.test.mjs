@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { auditRepository, formatReport, machineReport, parseManifestJson, parseSimpleYaml, scanRepository, validateManifest, writeStarterManifest } from "../src/index.js";
+import { auditRepository, formatReport, handoffMarkdown, machineReport, parseManifestJson, parseSimpleYaml, scanRepository, validateManifest, writeStarterManifest } from "../src/index.js";
 import * as rules from "../src/rules.js";
 
 const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -248,6 +248,57 @@ test("hygiene does not read skipped secret files", () => temp((root, write) => {
   assert.ok(result.scan.skippedSensitiveFiles.includes(".env"));
 }));
 
+test("CLI handoff brief reports paths and gaps without custody values", () => temp((root, write) => {
+  write("workspace [prod]/wrangler.toml", 'name = "production"\n');
+  write("ops.yaml", `version: 1
+services:
+  cloudflare-production:
+    provider: cloudflare
+    purpose: production hosting
+    required_for_production: true
+    custody:
+      owner: null
+      billing_owner: null
+      transferable: null
+      recovery_procedure: null
+  cloudflare-secondary:
+    provider: cloudflare
+    purpose: staging hosting
+    required_for_production: false
+    custody:
+      owner: Private Owner Name
+      billing_owner: Private Billing Contact
+      transferable: true
+      recovery_procedure: Private Recovery Location
+`);
+  const result = auditRepository(root);
+  const brief = handoffMarkdown(result);
+  assert.match(brief, /Operational Handoff Brief/);
+  assert.match(brief, /Missing custody fields: owner, billing owner, transferability, recovery procedure/);
+  assert.ok(brief.includes(String.raw`workspace \[prod\]/wrangler\.toml`));
+  assert.match(brief, /Handoff checklist/);
+  for (const privateValue of ["Private Owner Name", "Private Billing Contact", "Private Recovery Location"]) {
+    assert.equal(brief.includes(privateValue), false);
+  }
+  const cliRun = spawnSync(process.execPath, [cli, root, "--handoff", "--ci", "--require-custody"], { encoding: "utf8" });
+  assert.equal(cliRun.status, 2, cliRun.stderr || cliRun.stdout);
+  assert.match(cliRun.stdout, /\*\*Gate status:\*\* FAIL/);
+  assert.equal(cliRun.stdout.includes("Private Owner Name"), false);
+  const conflicting = spawnSync(process.execPath, [cli, root, "--handoff", "--json"], { encoding: "utf8" });
+  assert.equal(conflicting.status, 1);
+}));
+
+test("handoff brief reports hygiene locations without matched text", () => temp((root, write) => {
+  const secret = "AKIA" + "IOSFODNN7EXAMPLE";
+  write("src/config.js", `const key = "${secret}";\n`);
+  const result = auditRepository(root, undefined, { hygiene: true });
+  const brief = handoffMarkdown(result);
+  assert.match(brief, /Hygiene checks/);
+  assert.match(brief, /secret pattern aws-access-key/);
+  assert.ok(brief.includes(String.raw`src/config\.js:1`));
+  assert.equal(brief.includes(secret), false);
+}));
+
 test("this repository has no blocking findings and no personal gmail address", () => {
   const result = auditRepository(repo, undefined, { requireCustody: true });
   assert.equal(result.complete, true, JSON.stringify(result.scan.warnings));
@@ -259,7 +310,6 @@ test("this repository has no blocking findings and no personal gmail address", (
   const report = JSON.parse(cliRun.stdout);
   const packageJson = JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8"));
   assert.equal(report.tool.version, packageJson.version);
-  assert.equal(report.tool.version, "0.1.2");
   assert.deepEqual(report.blocking, []);
   assert.equal(packageJson.author, "Dripstatic Studios <hello@dripstaticstudios.com>");
   const refused = spawnSync(process.execPath, [cli, "init", repo], { encoding: "utf8" });

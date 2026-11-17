@@ -1,24 +1,27 @@
 #!/usr/bin/env node
 import { auditRepository } from "./audit.js";
 import { writeStarterManifest } from "./init.js";
-import { formatReport, machineReport } from "./report.js";
+import { formatReport, handoffMarkdown, machineReport } from "./report.js";
 import { SafetyError, safeError } from "./safety.js";
 import { TOOL_VERSION } from "./version.js";
 
 function usage() {
-  return `ops-drift [path] [--ci] [--json] [--manifest ops.yaml] [--require-custody] [--hygiene] [--include-tests]
+  return `ops-drift [path] [--ci] [--json | --handoff] [--manifest ops.yaml] [--require-custody] [--hygiene] [--include-tests]
 ops-drift init [path] [--include-tests]
+ops-drift --view
 
 Scans a repository for external operational dependencies and checks them against a human-maintained custody manifest.
 
   --ci                exit 2 when the gate has blocking findings
   --json              emit machine-readable JSON
+  --handoff           emit a Markdown operational handoff brief; excludes custody values
   --manifest <path>   use a specific manifest path
   --require-custody   also fail for incomplete custody on production-required instances
   --hygiene           also check for secret patterns, personal emails, and absolute local paths
   --include-tests     scan test and fixture paths that are skipped by default
   --help              show this help
   --version           show version
+  --view              serve the local report viewer and print its URL
 
 init                write a starter ops.yaml from detected providers; refuses to overwrite
 `;
@@ -26,13 +29,14 @@ init                write a starter ops.yaml from detected providers; refuses to
 
 function parseArgs(argv) {
   if (argv[0] === "init") return parseInitArgs(argv.slice(1));
-  let root = ".", rootSet = false, ci = false, json = false, manifest, requireCustody = false, hygiene = false, includeTests = false;
+  let root = ".", rootSet = false, ci = false, json = false, handoff = false, manifest, requireCustody = false, hygiene = false, includeTests = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") return "help";
     if (arg === "--version" || arg === "-v") return "version";
     if (arg === "--ci") ci = true;
     else if (arg === "--json") json = true;
+    else if (arg === "--handoff") handoff = true;
     else if (arg === "--require-custody") requireCustody = true;
     else if (arg === "--hygiene") hygiene = true;
     else if (arg === "--include-tests") includeTests = true;
@@ -41,7 +45,8 @@ function parseArgs(argv) {
     else if (!rootSet) { root = arg; rootSet = true; }
     else throw new Error(`Unexpected argument: ${arg}`);
   }
-  return { root, ci, json, manifest, requireCustody, hygiene, includeTests };
+  if (json && handoff) throw new Error("--json and --handoff cannot be used together");
+  return { root, ci, json, handoff, manifest, requireCustody, hygiene, includeTests };
 }
 
 function parseInitArgs(argv) {
@@ -68,9 +73,15 @@ function initError(error) {
 }
 
 try {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === "--view" && argv.length !== 1) throw new Error("Use --view by itself.");
+  const args = argv[0] === "--view" ? "view" : parseArgs(argv);
   if (args === "help") console.log(usage());
   else if (args === "version") console.log(TOOL_VERSION);
+  else if (args === "view") {
+    const { startViewer } = await import("./viewer.js");
+    console.log(await startViewer());
+  }
   else if (args.command === "init") {
     try {
       const written = writeStarterManifest(args.root, { includeTests: args.includeTests });
@@ -85,7 +96,7 @@ try {
   }
   else {
     const result = auditRepository(args.root, args.manifest, { requireCustody: args.requireCustody, hygiene: args.hygiene, ...(args.includeTests ? { includeTests: true } : {}) });
-    console.log(args.json ? JSON.stringify(machineReport(result), null, 2) : formatReport(result));
+    console.log(args.json ? JSON.stringify(machineReport(result), null, 2) : args.handoff ? handoffMarkdown(result) : formatReport(result));
     if (!result.complete) process.exitCode = 1;
     else if (args.ci && result.blocking.length) process.exitCode = 2;
   }
