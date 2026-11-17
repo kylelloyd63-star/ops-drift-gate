@@ -7,8 +7,8 @@
     <meta name="description" content="A visual preview of Ops Drift Gate's operational dependency review.">
     <title>OpsGate · Dependency review</title>
     <link rel="stylesheet" href="tokens.css?v=3">
-    <link rel="stylesheet" href="styles.css?v=11">
-    <script type="module" src="app.js?v=7"></script>
+    <link rel="stylesheet" href="styles.css?v=12">
+    <script type="module" src="app.js?v=8"></script>
   </head>
   <body>
     <!--
@@ -49,7 +49,7 @@
 
         <div class="workspace-label">WORKSPACE</div>
         <nav class="nav-list" aria-label="Workspace">
-          <button class="nav-button is-current" type="button" data-view="overview" aria-current="page">
+          <button id="overview" class="nav-button is-current" type="button" data-view="overview" aria-current="page">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14M3 10h14M3 15.5h9"/></svg>
             <span>Dependency review</span>
             <span class="nav-count">3</span>
@@ -67,8 +67,7 @@
         </div>
         <div class="sidebar-footer">
           <span class="status-dot" aria-hidden="true"></span>
-          <span>LOCAL PREVIEW</span>
-          <span class="version">v0.1.2</span>
+          <span>REVIEW BUILD</span>
         </div>
       </aside>
 

@@ -24,7 +24,7 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**Source version 0.1.2.** npm publication and GitHub release tags are separate from source changes; changing `package.json` does not publish or create a release tag. Each release requires maintainer approval with 2FA. The npm command below follows the latest version actually published, which may lag this source checkout.
+**Source version 0.1.3-rc.0.** This review candidate includes the browser report viewer, Markdown handoff briefs, and Source Family transfer receipts. Run `npm view ops-drift-gate version` for the public release. A maintainer approves each release with 2FA.
 
 v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`; `--handoff` generates a local Markdown brief with evidence paths and unresolved custody fields, never custody values or evidence contents. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
 

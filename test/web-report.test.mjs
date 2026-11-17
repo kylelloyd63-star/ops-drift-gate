@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { auditRepository } from "../src/audit.js";
 import { machineReport } from "../src/report.js";
 import { parseScanReport } from "../web/report.js";
@@ -57,10 +59,22 @@ test("maps versioned scanner reports into safe review states", () => {
 
 test("rejects unsupported, malformed, and unsafe report shapes", () => {
   assert.throws(() => parseScanReport(report({ schema_version: 2 })), /UNSUPPORTED_REPORT/);
+  assert.throws(() => parseScanReport(report({ status: "pass", complete: false })), /INVALID_STATUS/);
   assert.throws(() => parseScanReport(report({ findings: [{ ...report().findings[0], id: "<img>" }] })), /INVALID_FINDING/);
   assert.throws(() => parseScanReport(report({
     findings: [{ ...report().findings[0], instances: [{ id: "stripe-production", missing_custody: ["constructor"] }] }]
   })), /INVALID_CUSTODY_FIELD/);
+});
+
+test("renders a terminal CLI error as an incomplete report with unavailable counts", () => {
+  const cli = fileURLToPath(new URL("../src/cli.js", import.meta.url));
+  const error = spawnSync(process.execPath, [cli, "--unknown-option", "--json"], { encoding: "utf8" });
+  assert.equal(error.status, 1);
+  const parsed = parseScanReport(JSON.parse(error.stdout));
+  assert.equal(parsed.status, "error");
+  assert.equal(parsed.complete, false);
+  assert.deepEqual(parsed.summary, { scannedFiles: null, undocumented: null, custodyGaps: null });
+  assert.deepEqual(parsed.items, []);
 });
 
 test("accepts machine output from a real local repository scan", () => {

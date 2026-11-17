@@ -29,10 +29,12 @@ export function parseScanReport(value) {
       !Array.isArray(value.findings) || !Array.isArray(value.manifest_only) || !Array.isArray(value.blocking)) {
     throw new Error("INVALID_REPORT");
   }
+  if (value.complete !== (value.status !== "error")) throw new Error("INVALID_STATUS");
   if (value.findings.length > 2000 || value.manifest_only.length > 2000 || value.blocking.length > 20000) {
     throw new Error("REPORT_LIMIT_EXCEEDED");
   }
   for (const key of ["scanned_files", "undocumented_count", "unknown_custody_count"]) {
+    if (value.status === "error" && !Object.hasOwn(value.summary, key)) continue;
     if (!safeCount(value.summary[key])) throw new Error("INVALID_SUMMARY");
   }
 
@@ -108,9 +110,9 @@ export function parseScanReport(value) {
     complete: value.complete,
     version: typeof value.tool?.version === "string" ? value.tool.version.slice(0, 40) : "unknown",
     summary: {
-      scannedFiles: value.summary.scanned_files,
-      undocumented: value.summary.undocumented_count,
-      custodyGaps: value.summary.unknown_custody_count
+      scannedFiles: value.summary.scanned_files ?? null,
+      undocumented: value.summary.undocumented_count ?? null,
+      custodyGaps: value.summary.unknown_custody_count ?? null
     },
     manifest: {
       exists: typeof value.manifest.path === "string",

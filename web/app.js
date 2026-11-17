@@ -423,9 +423,11 @@ function updateReportSummary(report) {
   signalCount.textContent = String(activeServices.length);
   attentionCount.textContent = String(activeServices.filter(service => service.status === "attention").length);
   documentedCount.textContent = String(activeServices.filter(service => service.status === "documented").length);
-  undocumentedCount.textContent = `${report.summary.undocumented} undocumented${report.blocking.some(item => item.type === "undocumented") || !report.summary.undocumented ? "" : " · non-blocking"}`;
+  undocumentedCount.textContent = report.summary.undocumented === null
+    ? "Undocumented count unavailable"
+    : `${report.summary.undocumented} undocumented${report.blocking.some(item => item.type === "undocumented") || !report.summary.undocumented ? "" : " · non-blocking"}`;
   custodyGapCount.textContent = report.manifest.requireCustody
-    ? `${report.summary.custodyGaps} custody ${report.summary.custodyGaps === 1 ? "gap" : "gaps"}`
+    ? (report.summary.custodyGaps === null ? "Custody count unavailable" : `${report.summary.custodyGaps} custody ${report.summary.custodyGaps === 1 ? "gap" : "gaps"}`)
     : "custody gate off";
   document.querySelector("#summary-metrics").setAttribute("aria-label", "Local scan result counts");
   document.querySelector("#result-context").textContent = `Ops Drift Gate v${report.version} · ${report.complete ? "complete scan" : "incomplete scan"}`;
@@ -452,7 +454,7 @@ function handoffBrief(report) {
     `**Gate status:** ${status}`,
     `**Scan completeness:** ${report.complete ? "Complete" : "Incomplete"}`,
     `**Scanner version:** ${markdownText(report.version)}`,
-    `**Files scanned:** ${report.summary.scannedFiles}`,
+    `**Files scanned:** ${report.summary.scannedFiles ?? "Unavailable"}`,
     `**Manifest:** ${report.manifest.exists ? `Version ${report.manifest.version ?? "unknown"}` : "Not found"}`,
     "",
     "> This brief summarizes known repository signals. It is not an exhaustive inventory; confirm production use, ownership, billing, transfer access, and recovery with the responsible people.",
@@ -557,6 +559,10 @@ document.querySelector(".nav-list").addEventListener("click", (event) => {
   });
 });
 
+document.querySelector(".brand").addEventListener("click", () => {
+  document.querySelector("#overview").click();
+});
+
 document.querySelector(".summary-metrics").addEventListener("click", (event) => {
   const button = event.target.closest("[data-filter]");
   if (button) setFilter(button.dataset.filter);
@@ -648,13 +654,11 @@ reportInput.addEventListener("change", async () => {
         signal: service.purpose
       };
     });
-    activeFilter = "all";
     searchInput.value = "";
     selectedId = activeServices[0]?.id ?? "";
     updateReportSummary(report);
     renderManifest();
-    document.querySelectorAll(".summary-filter").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.filter === "all")));
-    renderList();
+    setFilter("all");
     showToast(`Loaded ${activeServices.length} finding(s) from a local scan report.`);
   } catch {
     showToast("Could not load that file. Choose an Ops Drift Gate schema v1 JSON report (maximum 5 MB).");
