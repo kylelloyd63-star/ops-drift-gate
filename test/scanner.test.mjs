@@ -125,6 +125,10 @@ test("Action report reflects fail_on_undocumented=false", () => {
     assert.match(result.stdout, /undocumented; gate disabled/);
     assert.match(result.stdout, /Gate status: PASS/);
     assert.match(fs.readFileSync(summary, "utf8"), /Gate status: PASS/);
+    const markdown = fs.readFileSync(summary, "utf8");
+    assert.match(markdown, /Services detected \| 1/);
+    assert.match(markdown, /Undocumented providers \(non-blocking\) \| 1/);
+    assert.match(markdown, /does not execute repository code or transmit scan contents/);
     assert.match(fs.readFileSync(output, "utf8"), /status=pass/);
     assert.match(fs.readFileSync(output, "utf8"), /undocumented_count=1/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

@@ -1,23 +1,25 @@
 {
   "name": "ops-drift-gate",
   "version": "0.1.2",
-  "description": "Deterministic operational dependency and custody drift detection for Git repositories.",
+  "description": "Find operational dependencies and missing custody records before software handoffs.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./integrations/source-family": "./src/integrations/source-family.js",
+    "./integrations/source-family/schema.json": "./integrations/source-family/transfer-receipt.schema.json",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "bin": {"ops-drift": "src/cli.js"},
-  "files": ["src", "action.yml", "README.md", "LICENSE", "docs/execution-model.md"],
+  "files": ["src", "integrations", "action.yml", "README.md", "LICENSE", "docs/execution-model.md", "docs/source-family-integration.md"],
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/cli.js && node --check src/scanner.js && node --check src/manifest.js && node --check src/audit.js && node --check src/report.js && node --check src/rules.js && node --check src/action.js && node --check src/index.js && node --check src/safety.js && node --check src/git-index.js && node --check src/version.js && node --check src/init.js && node --check src/hygiene.js && node --test test/*.test.mjs",
+    "check": "node --check src/cli.js && node --check src/scanner.js && node --check src/manifest.js && node --check src/audit.js && node --check src/report.js && node --check src/rules.js && node --check src/action.js && node --check src/index.js && node --check src/safety.js && node --check src/git-index.js && node --check src/version.js && node --check src/init.js && node --check src/hygiene.js && node --check src/integrations/source-family.js && node --test test/*.test.mjs",
     "package-check": "node scripts/package-check.mjs"
   },
   "engines": {"node": ">=24"},
-  "keywords": ["github-actions", "devops", "vibe-coding", "operational-readiness", "ownership", "handoff", "audit"],
+  "keywords": ["github-actions", "devops", "operational-dependencies", "operational-readiness", "service-inventory", "software-handoff", "dependency-audit", "repository-audit", "ownership", "custody", "vibe-coding"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kylelloyd63-star/ops-drift-gate.git"

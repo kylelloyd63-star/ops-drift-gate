@@ -13,9 +13,24 @@ function run(command, args, options = {}) {
   assert.equal(result.status, 0, result.stderr || result.stdout || String(result.error));
   return result.stdout;
 }
+function filesUnder(directory, prefix = directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const relative = path.posix.join(prefix, entry.name);
+    return entry.isDirectory() ? filesUnder(path.join(directory, entry.name), relative) : [relative];
+  });
+}
 try {
   const version = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
-  const expected = ["LICENSE", "README.md", "action.yml", "package.json", "docs/execution-model.md", ...fs.readdirSync("src").map(name => "src/" + name)].sort();
+  const expected = [
+    "LICENSE",
+    "README.md",
+    "action.yml",
+    "package.json",
+    "docs/execution-model.md",
+    "docs/source-family-integration.md",
+    ...filesUnder("src"),
+    ...filesUnder("integrations")
+  ].sort();
   for (const name of expected) {
     const data = fs.readFileSync(name);
     assert.equal(data.includes(Buffer.from("\r\n")), false, name + " must use canonical LF line endings");
@@ -35,7 +50,7 @@ try {
   run(process.execPath, [runtime, pnpm ? "add" : "install", "--offline", "--ignore-scripts", ...(pnpm ? [] : ["--no-audit", "--no-fund"]), archive], { cwd: project });
   const installed = path.join(project, "node_modules/ops-drift-gate/src");
   assert.equal(run(process.execPath, [path.join(installed, "cli.js"), "--version"]).trim(), version);
-  fs.writeFileSync(path.join(project, "import-smoke.mjs"), "import { auditRepository } from \"ops-drift-gate\";\nimport { TOOL_VERSION } from \"ops-drift-gate/src/version.js\";\nif (typeof auditRepository !== \"function\" || typeof TOOL_VERSION !== \"string\") throw new Error(\"missing export\");\n");
+  fs.writeFileSync(path.join(project, "import-smoke.mjs"), "import { auditRepository } from \"ops-drift-gate\";\nimport { TOOL_VERSION } from \"ops-drift-gate/src/version.js\";\nimport { createSourceFamilyReceipt } from \"ops-drift-gate/integrations/source-family\";\nimport schema from \"ops-drift-gate/integrations/source-family/schema.json\" with { type: \"json\" };\nif (typeof auditRepository !== \"function\" || typeof TOOL_VERSION !== \"string\" || typeof createSourceFamilyReceipt !== \"function\" || schema.properties.schema_version.const !== 1) throw new Error(\"missing export\");\n");
   run(process.execPath, ["import-smoke.mjs"], { cwd: project });
   const target = path.join(scratch, "hostile-target"); fs.mkdirSync(target);
   fs.writeFileSync(path.join(target, "package.json"), '{"dependencies":{"resend":"*"},"scripts":{"install":"exit 99"}}');

@@ -1,0 +1,9 @@
+# OpsGate interface brief
+
+**Scope:** The standalone browser prototype in `web/`. The canonical Dripstatic Studios brand is defined in the repository-root `DESIGN.md`; `tokens.css` is its implementation for this surface.
+
+**Composition:** An operational evidence ledger keeps repository findings primary, with a selected-service inspector connecting detection evidence to manifest coverage and custody gaps. The DSS core drip's scan-lined silhouette becomes a small OpsGate mark, with one Dripnote-style satellite drop. Keep both motifs subordinate to the review task.
+
+**Color balance:** Near-black and neutral charcoal dominate large surfaces. The DSS drip green is the primary chromatic signal; violet and magenta stay in small supporting roles for evidence and attention. Do not use purple as a large panel fill for this product surface.
+
+**Behavior:** The layout narrows from a persistent rail to compact top navigation, then stacks the findings ledger and inspector on small screens. The service manifest reflows into labeled fields on narrow screens, including owner, billing, transferability, recovery, and custody state, with semantic table headers. A local JSON import accepts scanner schema v1 reports without uploading them; the review shows custody-field presence, never custody values. A downloaded Markdown handoff brief summarizes known evidence and unresolved custody without inventing a readiness score. A top-bar mode selector keeps the default presentation calm, offers an explicit Signal mode, and lets Auto conservatively fall back to Standard when the device requests reduced motion, lacks a fine pointer, or reports low hardware capacity. Signal mode adds localized pointer light and click response, subtle attention-only scanlines, and evidence-confidence bars; it never repurposes manifest or custody status. All sample results remain explicitly labeled as illustrative; the browser does not run the scanner.

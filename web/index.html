@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b0c0e">
+    <meta name="description" content="A visual preview of Ops Drift Gate's operational dependency review.">
+    <title>OpsGate · Dependency review</title>
+    <link rel="stylesheet" href="tokens.css?v=3">
+    <link rel="stylesheet" href="styles.css?v=11">
+    <script type="module" src="app.js?v=7"></script>
+  </head>
+  <body>
+    <!--
+      THESIS: Make undocumented operational dependencies visible; refuse the generic metrics-wall dashboard.
+      OWN-WORLD: near-black neutral surfaces, the DSS drip's green, one small Dripnote drop, scanline grid, orbital marks, and restrained pointer-reactive depth.
+      STORY: Inspect illustrative findings, understand their evidence and custody state, then copy a starter manifest entry.
+      FIRST VIEWPORT: A compact rail, direct page heading and sample-reset action, gate summary, and a findings ledger beside its detail inspector.
+      FORM: An operational evidence ledger within the shared Dripstatic identity; the oversized hero becomes quiet drip geometry so the review task stays primary.
+    -->
+    <a class="skip-link" href="#main-content">Skip to review</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#overview" aria-label="OpsGate overview">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 42 42">
+              <defs>
+                <linearGradient id="brand-drip" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#82ff9a"/>
+                  <stop offset="1" stop-color="#07532f"/>
+                </linearGradient>
+                <pattern id="brand-scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
+                  <rect width="4" height="1" fill="#07060d" opacity=".34"/>
+                </pattern>
+                <clipPath id="brand-drop-clip">
+                  <path d="M21 3.8S6.8 19.5 6.8 27.1a14.2 14.2 0 0 0 28.4 0C35.2 19.5 21 3.8 21 3.8Z"/>
+                </clipPath>
+              </defs>
+              <path d="M21 3.8S6.8 19.5 6.8 27.1a14.2 14.2 0 0 0 28.4 0C35.2 19.5 21 3.8 21 3.8Z" fill="url(#brand-drip)"/>
+              <path d="M14.5 25h13m-6.5-6.5v13" stroke="#0b0c0e" stroke-width="1.5" stroke-linecap="round"/>
+              <rect width="42" height="42" fill="url(#brand-scanlines)" clip-path="url(#brand-drop-clip)"/>
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <strong>Ops<span>Gate</span></strong>
+            <small>DRIFT CONTROL</small>
+          </span>
+        </a>
+
+        <div class="workspace-label">WORKSPACE</div>
+        <nav class="nav-list" aria-label="Workspace">
+          <button class="nav-button is-current" type="button" data-view="overview" aria-current="page">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14M3 10h14M3 15.5h9"/></svg>
+            <span>Dependency review</span>
+            <span class="nav-count">3</span>
+          </button>
+          <button class="nav-button" type="button" data-view="manifest">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.8h7l3 3v11.4H5V2.8Z"/><path d="M12 2.8v3h3M7.8 9h4.8M7.8 12h4.8"/></svg>
+            <span>Service manifest</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-note">
+          <span class="note-orbit" aria-hidden="true"></span>
+          <p>Code can travel.<br><strong>Operations need a map.</strong></p>
+        </div>
+        <div class="sidebar-footer">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>LOCAL PREVIEW</span>
+          <span class="version">v0.1.2</span>
+        </div>
+      </aside>
+
+      <main id="main-content" class="main-content">
+        <header class="topbar">
+          <div class="breadcrumbs"><span>Workspace</span><span class="crumb-slash">/</span><strong>ops-drift-gate</strong></div>
+          <div class="topbar-meta">
+            <span class="sample-label"><span class="sample-dot"></span><span id="data-mode-label">ILLUSTRATIVE DATA</span></span>
+            <label class="mode-control">
+              <span>MODE</span>
+              <select id="visual-mode" aria-label="Visual response mode">
+                <option value="auto">Auto</option>
+                <option value="standard">Standard</option>
+                <option value="signal">Signal</option>
+              </select>
+            </label>
+            <span id="visual-mode-status" class="mode-status" role="status" aria-live="polite">Auto · Standard</span>
+          </div>
+        </header>
+
+        <div class="content-wrap">
+          <div class="preview-notice">
+            <span class="notice-symbol" aria-hidden="true">i</span>
+            <p id="preview-message"><strong>Preview only.</strong> This sample is illustrative. Open an Ops Drift Gate JSON report to review a real scan locally; the file stays in this browser.</p>
+            <button type="button" class="notice-dismiss" aria-label="Dismiss preview notice">×</button>
+          </div>
+
+          <section id="overview-view" class="view is-visible" aria-labelledby="page-title">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span class="eyebrow-line"></span>OPERATIONAL INVENTORY</p>
+                <h1 id="page-title">Dependency review</h1>
+                <p class="page-description">Find what the code relies on. Make sure someone can take it over.</p>
+              </div>
+              <div class="page-actions">
+                <input id="scan-report-file" class="visually-hidden" type="file" accept=".json,application/json">
+                <label id="import-report" class="run-button secondary-button report-import" for="scan-report-file">Review JSON report</label>
+                <button id="export-brief" class="run-button secondary-button" type="button" disabled title="Import a local JSON report to create a handoff brief">Download handoff brief</button>
+                <button id="reset-sample" class="run-button" type="button" aria-label="Reset the illustrative sample">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.2 8A6.4 6.4 0 0 0 5.1 5.7L3.8 7M3.8 3.9V7h3.1M3.8 12A6.4 6.4 0 0 0 14.9 14.3l1.3-1.3m0 3.1V13h-3.1"/></svg>
+                  Reset sample
+                </button>
+              </div>
+            </div>
+
+            <div class="gate-summary is-fail">
+              <div class="gate-state">
+                <span class="gate-pulse" aria-hidden="true"><span></span></span>
+                <div>
+                  <span id="gate-label" class="gate-label">EXAMPLE GATE RESULT</span>
+                  <strong id="gate-title" class="gate-title">Action needed</strong>
+                </div>
+              </div>
+              <div id="summary-metrics" class="summary-metrics" aria-label="Illustrative result counts">
+                <button type="button" class="summary-filter is-active" data-filter="all">
+                  <span id="signal-count" class="metric-number">4</span><span class="metric-label">signals</span>
+                </button>
+                <button type="button" class="summary-filter" data-filter="attention">
+                  <span id="attention-count" class="metric-number metric-warn">3</span><span class="metric-label">need attention</span>
+                </button>
+                <button type="button" class="summary-filter" data-filter="documented">
+                  <span id="documented-count" class="metric-number metric-good">1</span><span class="metric-label">documented</span>
+                </button>
+              </div>
+              <div class="gate-detail"><span id="undocumented-count">2 undocumented</span><i aria-hidden="true"></i><span id="custody-gap-count">1 custody gap</span></div>
+            </div>
+
+            <div class="review-heading">
+              <div>
+                <h2>Detected services</h2>
+                <span id="result-context" class="result-context">Signals found in this illustrative run</span>
+              </div>
+              <label class="search-box">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.7" cy="8.7" r="5.6"/><path d="m13 13 4 4"/></svg>
+                <input id="finding-search" type="search" placeholder="Find a service" autocomplete="off" aria-label="Find a service" aria-keyshortcuts="/">
+                <kbd title="Focus search">/</kbd>
+              </label>
+            </div>
+
+            <div class="review-grid">
+              <section class="findings-panel" aria-label="Detected services">
+                <div class="table-head" aria-hidden="true">
+                  <span>SERVICE</span><span>CONFIDENCE</span><span>MANIFEST</span>
+                </div>
+                <div id="finding-list" class="finding-list"></div>
+                <p id="empty-findings" class="empty-state" hidden>No services match this view.<br><button class="empty-reset" type="button">Clear search and show all</button></p>
+                <div class="list-footer"><span id="visible-count" aria-live="polite">4 services</span><span><span class="live-dot"></span> <span id="result-source">SAMPLE RESULTS</span></span></div>
+              </section>
+
+              <aside id="detail-panel" class="detail-panel" aria-label="Selected service details" aria-live="polite"></aside>
+            </div>
+          </section>
+
+          <section id="manifest-view" class="view manifest-view" aria-labelledby="manifest-title" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span class="eyebrow-line"></span>HUMAN-MAINTAINED RECORD</p>
+                <h1 id="manifest-title">Service manifest</h1>
+                <p class="page-description">The services and custody details people have recorded for this repository.</p>
+              </div>
+              <button id="copy-manifest" class="run-button secondary-button" type="button">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1"/><path d="M13 6V3H4v11h3"/></svg>
+                <span id="copy-manifest-label">Copy example YAML</span>
+              </button>
+            </div>
+            <div class="manifest-banner">
+              <span class="manifest-mark" aria-hidden="true">◎</span>
+              <div><strong id="manifest-caption">Example manifest · ops.yaml</strong><p id="manifest-description">Illustrative records only. Nothing here was read from your files.</p></div>
+              <span id="manifest-version" class="manifest-version">VERSION 1</span>
+            </div>
+            <div id="manifest-table" class="manifest-table" role="table" aria-label="Example service custody manifest">
+              <div class="manifest-table-head" role="row">
+                <span role="columnheader">Service instance</span>
+                <span role="columnheader">Owner</span>
+                <span role="columnheader">Billing owner</span>
+                <span role="columnheader">Transferable</span>
+                <span role="columnheader">Recovery procedure</span>
+                <span role="columnheader">Custody</span>
+              </div>
+              <div id="manifest-rows" role="rowgroup"></div>
+            </div>
+            <div id="manifest-footnote" class="manifest-footnote"><span class="status-dot"></span> Custody completeness is evaluated only for production-required services when that check is enabled.</div>
+          </section>
+
+          <div id="toast" class="toast" role="status" aria-live="polite"></div>
+          <footer class="page-footer"><span>OPS DRIFT GATE</span><span>Make operational dependencies visible.</span><a href="https://github.com/kylelloyd63-star/ops-drift-gate" target="_blank" rel="noreferrer">View source <span aria-hidden="true">↗</span></a></footer>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
