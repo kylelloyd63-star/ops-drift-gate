@@ -1,6 +1,8 @@
 # Ops Drift Gate
 
-**Git tracks code. Ops Drift Gate tracks the operational dependencies that code alone does not transfer.**
+**Find the services a Git repository depends on before you take it over.**
+
+Ops Drift Gate spots signals for services such as hosting, payments, DNS, and email, then shows which ownership, billing, and recovery details still need to be confirmed. The scanner, GitHub Action, and report exports are free and open source under MIT. Run the scanner locally without an account.
 
 AI-assisted apps can accumulate hosting, databases, payments, email, DNS, OAuth, scheduled jobs, CI/CD, API accounts, environment variables, and billing relationships faster than anyone documents them. A repository can be perfectly clonable and still be impossible to take over safely.
 

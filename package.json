@@ -1,7 +1,7 @@
 {
   "name": "ops-drift-gate",
   "version": "0.1.3-rc.0",
-  "description": "Find operational dependencies and missing custody records before software handoffs.",
+  "description": "Audit Git repos for external services and missing ownership, billing, and recovery records before handoff.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
