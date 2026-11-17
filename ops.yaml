@@ -6,8 +6,8 @@ services:
     purpose: Continuous integration and the npm publish workflow
     required_for_production: true
     custody:
-      owner: Dripstatic Studios
-      billing_owner: Dripstatic Studios
+      owner: Dripstatic Studios LLC
+      billing_owner: Dripstatic Studios LLC
       transferable: true
       recovery_procedure: GitHub Actions settings and .github/workflows
   npm:
@@ -15,7 +15,7 @@ services:
     purpose: Public package distribution on the npm registry
     required_for_production: true
     custody:
-      owner: Dripstatic Studios
-      billing_owner: Dripstatic Studios
+      owner: Dripstatic Studios LLC
+      billing_owner: Dripstatic Studios LLC
       transferable: true
       recovery_procedure: Trusted publishing workflow .github/workflows/publish-npm.yml

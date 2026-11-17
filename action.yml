@@ -1,6 +1,6 @@
 name: Ops Drift Gate
 description: Detect external operational dependencies missing from the repository custody manifest.
-author: Dripstatic Studios
+author: Dripstatic Studios LLC
 inputs:
   path:
     description: Repository path within GITHUB_WORKSPACE to scan

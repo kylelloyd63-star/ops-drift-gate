@@ -261,7 +261,7 @@ test("this repository has no blocking findings and no personal gmail address", (
   assert.equal(report.tool.version, packageJson.version);
   assert.equal(report.tool.version, "0.1.2");
   assert.deepEqual(report.blocking, []);
-  assert.equal(packageJson.author, "Dripstatic Studios <hello@dripstaticstudios.com>");
+  assert.equal(packageJson.author, "Dripstatic Studios LLC <kyle@dripstaticstudios.com>");
   const refused = spawnSync(process.execPath, [cli, "init", repo], { encoding: "utf8" });
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /will not overwrite/);
