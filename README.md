@@ -14,7 +14,7 @@ It never guesses account ownership. Machine-detected evidence and human-confirme
 
 ## Status
 
-**Source version 0.1.2.** The npm package `ops-drift-gate@0.1.1` remains the published `latest` release. This repository bump does not publish to npm and does not create a `v0.1.2` tag. A maintainer still approves each release with 2FA.
+The [stable npm package](https://www.npmjs.com/package/ops-drift-gate/v/0.1.2) is `0.1.2` (`latest`). The [npm preview](https://www.npmjs.com/package/ops-drift-gate/v/0.2.0-rc.0) is `0.2.0-rc.0` (`next`). The source on this branch is `0.1.2`. The GitHub Action uses its own release tag, shown below.
 
 v0.1.2 skips test and fixture paths by default, adds `ops-drift init`, and detects form backends, static hosting, custom domains, and package registries. `--json` reports `tool.version` from `package.json`. Optional `--hygiene` checks look for secret-shaped tokens, personal email providers, and absolute local paths without copying the matched text into the report.
 
@@ -28,16 +28,33 @@ Provider detection includes Vercel, Netlify, GitHub Pages, Cloudflare, Cloudflar
 
 ## Quick start
 
-From a source checkout:
+With Node 24 or newer, open a terminal in the repository you want to check. Run the stable scan:
+
+```bash
+npx --yes ops-drift-gate@0.1.2 .
+```
+
+Look for services your code appears to use that are missing from your service list. Confirm account ownership and access before handing the repository off.
+
+### Try the preview
+
+The release demo uses this version:
+
+```bash
+npx --yes ops-drift-gate@0.2.0-rc.0 .
+```
+
+To open the preview's local report viewer, run the second command and open the URL it prints. In the viewer, load the JSON file saved by the first command. These commands work in Bash, Command Prompt, and PowerShell 7:
+
+```bash
+npx --yes ops-drift-gate@0.2.0-rc.0 . --json > ../ops-drift-report.json
+npx --yes ops-drift-gate@0.2.0-rc.0 --view
+```
+
+### From a source checkout
 
 ```bash
 node src/cli.js .
-```
-
-The published npm package is still `ops-drift-gate@0.1.1`. From any machine with Node 24+:
-
-```bash
-npx --yes ops-drift-gate@0.1.1 .
 ```
 
 Write a starter custody manifest from what the scanner found. `init` refuses to overwrite `ops.yaml`, `ops.yml`, or `ops.json`:
@@ -156,7 +173,7 @@ jobs:
 
 For maximum immutability, pin the reviewed release commit SHA instead of the version tag.
 
-Source version 0.1.2 is not a published release and has no tag. From a checkout of this source, the Action also accepts `hygiene` and `include_tests`:
+From a checkout of source version `0.1.2`, the Action also accepts `hygiene` and `include_tests`:
 
 ```yaml
       - uses: ./
